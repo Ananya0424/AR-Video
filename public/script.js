@@ -1037,30 +1037,72 @@ function cleanupFallbackAR() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   9. Unified Entry Point: WebXR with Gyroscope Fallback
+   9. Unified Entry Point: WebXR with Gyroscope & 2D CSS Fallbacks
    ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Safest AR fallback mode: 2D HTML5 camera + floating overlay.
+ * Used when WebXR and WebGL/Three.js fail or are unsupported.
+ */
+async function launchStandard2DAR() {
+  console.log('Using 2D CSS AR fallback mode...');
+  const ok = await startCamera();
+  if (!ok) {
+    els.startBtn.disabled = false;
+    els.startBtn.innerHTML = `
+      <span class="btn-primary__icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      </span>
+      Start AR Experience`;
+    return;
+  }
+  
+  // Restore original 2D HTML5 overlays
+  els.overlayContainer.style.display = 'block';
+
+  showScreen('ar');
+  initOverlayVideo();
+  initTouchGestures();
+  initHudAutoHide();
+  showToast();
+}
 
 async function launchAR() {
   els.startBtn.disabled = true;
   els.startBtn.textContent = 'Starting…';
 
-  const webXRSupported = await checkWebXRSupport();
-  if (webXRSupported) {
-    // Android Chrome -> Immersive WebXR Hit-testing
-    await launchWebXR();
-  } else {
-    // iOS Safari / Desktop -> Gyroscope WebGL tracking
-    await launchStandardAR();
+  try {
+    // If Three.js failed to load, go directly to CSS AR
+    if (typeof THREE === 'undefined') {
+      console.warn('Three.js not loaded, falling back to 2D CSS AR');
+      await launchStandard2DAR();
+      return;
+    }
+
+    const webXRSupported = await checkWebXRSupport();
+    if (webXRSupported) {
+      // Android Chrome -> Immersive WebXR Hit-testing
+      await launchWebXR();
+    } else {
+      // iOS Safari / Desktop -> Gyroscope WebGL tracking
+      await launchStandardAR();
+    }
+  } catch (err) {
+    console.error('WebGL/WebXR AR Launch failed, falling back to 2D CSS AR:', err);
+    // Safe final fallback: HTML5 Camera + CSS overlay
+    await launchStandard2DAR();
+  } finally {
+    els.startBtn.disabled = false;
+    els.startBtn.innerHTML = `
+      <span class="btn-primary__icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+      </span>
+      Start AR Experience`;
   }
-  
-  els.startBtn.disabled = false;
-  els.startBtn.innerHTML = `
-    <span class="btn-primary__icon">
-      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-        <polygon points="5 3 19 12 5 21 5 3"/>
-      </svg>
-    </span>
-    Start AR Experience`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
