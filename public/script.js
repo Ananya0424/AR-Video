@@ -483,12 +483,240 @@ function showToast() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   7. AR Experience Entry Point
+   7. WebXR Immersive AR (Three.js) & Gesture Engine
    ═══════════════════════════════════════════════════════════════ */
-async function launchAR() {
-  els.startBtn.disabled = true;
-  els.startBtn.textContent = 'Starting…';
+let xrSession = null;
+let xrRenderer = null;
+let xrScene = null;
+let xrCamera = null;
+let xrVideoMesh = null;
+let xrVideoTexture = null;
+let isWebXRMode = false;
 
+// WebXR mesh state
+let xrScale = 1.0;
+let xrPosition = { x: 0, y: 0.1, z: -1.2 }; // positioned slightly up, 1.2m in front
+
+/**
+ * Check if the browser supports immersive-ar WebXR session.
+ * @returns {Promise<boolean>}
+ */
+async function checkWebXRSupport() {
+  if (navigator.xr && typeof navigator.xr.isSessionSupported === 'function') {
+    try {
+      return await navigator.xr.isSessionSupported('immersive-ar');
+    } catch (err) {
+      console.warn('WebXR compatibility check failed:', err);
+    }
+  }
+  return false;
+}
+
+/**
+ * Starts an immersive-ar WebXR session.
+ */
+async function launchWebXR() {
+  try {
+    // 1. Create WebGLRenderer with transparency and XR enabled
+    const canvas = document.createElement('canvas');
+    canvas.id = 'webxr-canvas';
+    canvas.style.position = 'absolute';
+    canvas.style.inset = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.zIndex = '2';
+    
+    xrRenderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true
+    });
+    xrRenderer.setSize(window.innerWidth, window.innerHeight);
+    xrRenderer.setPixelRatio(window.devicePixelRatio);
+    xrRenderer.xr.enabled = true;
+
+    // 2. Request the WebXR immersive-ar session
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      optionalFeatures: ['local-floor', 'bounded-floor']
+    });
+    
+    xrSession = session;
+    isWebXRMode = true;
+    
+    // Mount canvas inside AR screen container
+    screens.ar.appendChild(canvas);
+    
+    // Hide standard camera-feed and overlay elements
+    els.cameraFeed.style.display = 'none';
+    els.overlayContainer.style.display = 'none';
+    
+    // Show HUD controls and AR screen
+    showScreen('ar');
+    els.switchCamBtn.style.display = 'none'; // WebXR manages cameras internally
+    initHudAutoHide();
+    showToast();
+
+    // 3. Set up Three.js scene and camera
+    xrScene = new THREE.Scene();
+    xrCamera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    // 4. Create Video Mesh
+    const video = els.overlayVideo;
+    video.play().catch((err) => {
+      console.warn('Video autoplay blocked in WebXR session, playing on touch:', err);
+    });
+
+    xrVideoTexture = new THREE.VideoTexture(video);
+    xrVideoTexture.minFilter = THREE.LinearFilter;
+    xrVideoTexture.magFilter = THREE.LinearFilter;
+    xrVideoTexture.format = THREE.RGBAFormat;
+
+    // Aspect ratio plane (width 0.8m, height adjusted for 16:9 or similar)
+    const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
+    const planeW = 0.8;
+    const planeH = planeW / aspect;
+
+    const geometry = new THREE.PlaneGeometry(planeW, planeH);
+    const material = new THREE.MeshBasicMaterial({
+      map: xrVideoTexture,
+      side: THREE.DoubleSide
+    });
+
+    xrVideoMesh = new THREE.Mesh(geometry, material);
+    xrVideoMesh.position.set(xrPosition.x, xrPosition.y, xrPosition.z);
+    xrScene.add(xrVideoMesh);
+
+    // 5. Connect renderer to WebXR session
+    await xrRenderer.xr.setSession(session);
+
+    // 6. Handle session end
+    session.addEventListener('end', () => {
+      cleanupWebXR();
+      showScreen('welcome');
+    });
+
+    // 7. Touch controls inside WebXR Canvas
+    initWebXRTouchControls(canvas);
+
+    // 8. Animation Loop
+    xrRenderer.setAnimationLoop(() => {
+      if (xrVideoTexture) xrVideoTexture.needsUpdate = true;
+      xrRenderer.render(xrScene, xrCamera);
+    });
+
+  } catch (err) {
+    console.error('Failed to initialize WebXR session, falling back to camera mode:', err);
+    cleanupWebXR();
+    // Fall back immediately to normal camera/overlay view
+    await launchStandardAR();
+  }
+}
+
+/**
+ * Set up touch listeners directly on the WebXR canvas for WebXR spatial drag & pinch.
+ */
+function initWebXRTouchControls(canvas) {
+  let startX, startY;
+  let startDist = 0;
+  let startScale = 1;
+  let startMeshPos = { x: 0, y: 0 };
+  let isDragging = false;
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      isDragging = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startMeshPos.x = xrVideoMesh.position.x;
+      startMeshPos.y = xrVideoMesh.position.y;
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      startDist = Math.hypot(dx, dy);
+      startScale = xrScale;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!xrVideoMesh) return;
+
+    if (e.touches.length === 1 && isDragging) {
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+
+      // Map screen delta coordinates to spatial meters
+      // dx is horizontal movement, dy is vertical movement
+      xrVideoMesh.position.x = startMeshPos.x + (dx * 0.003);
+      xrVideoMesh.position.y = startMeshPos.y - (dy * 0.003); // invert Y
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+
+      if (startDist > 0) {
+        xrScale = Math.max(0.3, Math.min(4.0, startScale * (dist / startDist)));
+        xrVideoMesh.scale.set(xrScale, xrScale, 1.0);
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      isDragging = e.touches.length === 1;
+      if (isDragging) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startMeshPos.x = xrVideoMesh.position.x;
+        startMeshPos.y = xrVideoMesh.position.y;
+      }
+    }
+  });
+}
+
+/**
+ * Shut down the WebXR session and release rendering resources.
+ */
+function cleanupWebXR() {
+  isWebXRMode = false;
+  
+  if (xrRenderer) {
+    xrRenderer.setAnimationLoop(null);
+    xrRenderer.dispose();
+    xrRenderer = null;
+  }
+  
+  if (xrSession) {
+    xrSession.end().catch(() => {});
+    xrSession = null;
+  }
+
+  // Remove WebXR Canvas
+  const canvas = $('webxr-canvas');
+  if (canvas) canvas.remove();
+
+  // Restore normal DOM elements
+  els.cameraFeed.style.display = 'block';
+  els.overlayContainer.style.display = 'block';
+  els.switchCamBtn.style.display = 'flex';
+  
+  xrScene = null;
+  xrCamera = null;
+  xrVideoMesh = null;
+  xrVideoTexture = null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   8. Standard AR Experience (Graceful Fallback Mode)
+   ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Fallback entry point. Opens 2D camera feed and floating video overlay.
+ */
+async function launchStandardAR() {
   const ok = await startCamera();
   if (!ok) {
     els.startBtn.disabled = false;
@@ -509,6 +737,33 @@ async function launchAR() {
   showToast();
 }
 
+/**
+ * Unified Entry Point: Decides between WebXR and standard camera fallback.
+ */
+async function launchAR() {
+  els.startBtn.disabled = true;
+  els.startBtn.textContent = 'Starting…';
+
+  const webXRSupported = await checkWebXRSupport();
+  if (webXRSupported) {
+    // If WebXR is supported, launch immersive 3D scene
+    await launchWebXR();
+  } else {
+    // Else, use browser HTML5 camera fallback
+    await launchStandardAR();
+  }
+  
+  // Re-enable button text in case they return
+  els.startBtn.disabled = false;
+  els.startBtn.innerHTML = `
+    <span class="btn-primary__icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+    </span>
+    Start AR Experience`;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    8. Event Bindings
    ═══════════════════════════════════════════════════════════════ */
@@ -520,7 +775,11 @@ els.retryBtn.addEventListener('click', () => {
 });
 
 els.closeBtn.addEventListener('click', () => {
-  stopCamera();
+  if (isWebXRMode) {
+    cleanupWebXR();
+  } else {
+    stopCamera();
+  }
   showScreen('welcome');
 });
 
