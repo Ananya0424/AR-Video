@@ -59,6 +59,7 @@ const els = {
   overlayVideo:   $('overlay-video'),
   overlayPlaceholder: $('overlay-placeholder'),
   closeBtn:       $('close-btn'),
+  recenterBtn:    $('recenter-btn'),
   switchCamBtn:   $('switch-cam-btn'),
   arHud:          $('ar-hud'),
   arToast:        $('ar-toast'),
@@ -66,6 +67,8 @@ const els = {
   closeQrBtn:     $('close-qr-btn'),
   qrImage:        $('qr-image'),
   qrUrlText:      $('qr-url-text'),
+  chromaSimilarity: $('chroma-similarity'),
+  chromaTuner:    $('chroma-tuner'),
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -656,6 +659,7 @@ async function launchWebXR() {
     // Show HUD controls and AR screen
     showScreen('ar');
     els.switchCamBtn.style.display = 'none'; // WebXR manages cameras internally
+    if (els.recenterBtn) els.recenterBtn.style.display = 'none';
     initHudAutoHide();
     showToast();
 
@@ -697,7 +701,7 @@ async function launchWebXR() {
       uniforms: {
         map: { value: xrVideoTexture },
         colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
-        similarity: { value: 0.18 }, // Sensitivity threshold
+        similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.26 }, // Sensitivity threshold
         smoothness: { value: 0.12 }  // Edge blend
       },
       transparent: true,
@@ -715,9 +719,9 @@ async function launchWebXR() {
 
     await xrRenderer.xr.setSession(session);
 
-    // 7. Click to place video on surface reticle
+    // 7. Click to place/reposition video on surface reticle
     session.addEventListener('select', () => {
-      if (xrReticle.visible && !isVideoPlaced) {
+      if (xrReticle.visible) {
         // Position mesh on the reticle matrix (table/floor coordinate)
         xrVideoMesh.position.setFromMatrixPosition(xrReticle.matrix);
         
@@ -730,7 +734,6 @@ async function launchWebXR() {
         
         xrVideoMesh.visible = true;
         isVideoPlaced = true;
-        xrReticle.visible = false; // Hide reticle after placing
 
         // Start playback
         video.play().catch((err) => console.warn('Video play blocked:', err));
@@ -752,8 +755,8 @@ async function launchWebXR() {
         video.play().catch(() => {});
       }
 
-      // Update hit test reticle if not placed yet
-      if (!isVideoPlaced && xrHitTestSource) {
+      // Update hit test reticle for continuous repositioning
+      if (xrHitTestSource) {
         const hitTestResults = frame.getHitTestResults(xrHitTestSource);
         if (hitTestResults.length > 0) {
           const hit = hitTestResults[0];
@@ -838,6 +841,7 @@ function cleanupWebXR() {
   els.cameraFeed.style.display = 'block';
   els.overlayContainer.style.display = 'block';
   els.switchCamBtn.style.display = 'flex';
+  if (els.recenterBtn) els.recenterBtn.style.display = 'flex';
   
   xrScene = null;
   xrCamera = null;
@@ -947,7 +951,7 @@ async function launchStandardAR() {
     uniforms: {
       map: { value: fbTexture },
       colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
-      similarity: { value: 0.18 }, // Sensitivity threshold
+      similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.26 }, // Sensitivity threshold
       smoothness: { value: 0.12 }  // Edge blend
     },
     transparent: true,
@@ -1234,6 +1238,32 @@ els.closeBtn.addEventListener('click', () => {
 });
 
 els.switchCamBtn.addEventListener('click', switchCamera);
+
+// Dynamic chroma-key similarity adjustment
+if (els.chromaSimilarity) {
+  els.chromaSimilarity.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    if (fbMesh && fbMesh.material && fbMesh.material.uniforms && fbMesh.material.uniforms.similarity) {
+      fbMesh.material.uniforms.similarity.value = val;
+    }
+    if (xrVideoMesh && xrVideoMesh.material && xrVideoMesh.material.uniforms && xrVideoMesh.material.uniforms.similarity) {
+      xrVideoMesh.material.uniforms.similarity.value = val;
+    }
+  });
+}
+
+// Recenter logic to snap the car in front of the phone camera direction
+function recenterARVideo() {
+  if (isFallbackARMode && fbMesh && fbCamera) {
+    console.log('Recentering fallback AR mesh...');
+    const forward = new THREE.Vector3(0, 0, -1.8).applyQuaternion(fbCamera.quaternion);
+    fbMesh.position.copy(forward);
+  }
+}
+
+if (els.recenterBtn) {
+  els.recenterBtn.addEventListener('click', recenterARVideo);
+}
 
 // Handle visibility change — pause/resume camera
 document.addEventListener('visibilitychange', () => {
