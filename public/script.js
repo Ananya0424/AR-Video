@@ -485,6 +485,42 @@ function showToast() {
 /* ═══════════════════════════════════════════════════════════════
    7. WebXR Immersive AR (Three.js with Hit-Testing)
    ═══════════════════════════════════════════════════════════════ */
+// Custom WebGL shader to remove solid backgrounds dynamically
+const chromaKeyShader = {
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D map;
+    uniform vec3 colorKey;
+    uniform float similarity;
+    uniform float smoothness;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 textureColor = texture2D(map, vUv);
+      
+      // Euclidean distance in RGB color space
+      float diff = distance(textureColor.rgb, colorKey);
+      
+      // Calculate alpha based on similarity & smoothness
+      float alpha = smoothstep(similarity, similarity + smoothness, diff);
+      
+      // Dark shadow edge clean-up
+      float brightness = (textureColor.r + textureColor.g + textureColor.b) / 3.0;
+      if (brightness < 0.12) {
+        alpha = smoothstep(0.0, 0.12, brightness) * alpha;
+      }
+      
+      gl_FragColor = vec4(textureColor.rgb, textureColor.a * alpha);
+    }
+  `
+};
+
 let xrSession = null;
 let xrRenderer = null;
 let xrScene = null;
@@ -593,8 +629,16 @@ async function launchWebXR() {
     // Move geometry center up so it stands on the floor anchor point rather than splitting it
     geometry.translate(0, planeH / 2, 0);
 
-    const material = new THREE.MeshBasicMaterial({
-      map: xrVideoTexture,
+    const material = new THREE.ShaderMaterial({
+      vertexShader: chromaKeyShader.vertexShader,
+      fragmentShader: chromaKeyShader.fragmentShader,
+      uniforms: {
+        map: { value: xrVideoTexture },
+        colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
+        similarity: { value: 0.18 }, // Sensitivity threshold
+        smoothness: { value: 0.12 }  // Edge blend
+      },
+      transparent: true,
       side: THREE.DoubleSide
     });
 
@@ -830,8 +874,16 @@ async function launchStandardAR() {
   const planeH = planeW / aspect;
 
   const geometry = new THREE.PlaneGeometry(planeW, planeH);
-  const material = new THREE.MeshBasicMaterial({
-    map: fbTexture,
+  const material = new THREE.ShaderMaterial({
+    vertexShader: chromaKeyShader.vertexShader,
+    fragmentShader: chromaKeyShader.fragmentShader,
+    uniforms: {
+      map: { value: fbTexture },
+      colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
+      similarity: { value: 0.18 }, // Sensitivity threshold
+      smoothness: { value: 0.12 }  // Edge blend
+    },
+    transparent: true,
     side: THREE.DoubleSide
   });
 
