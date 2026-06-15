@@ -101,15 +101,51 @@ function runLoadingSequence() {
   // Initialize QR utility if on desktop
   initDesktopQR();
 
+  const video = els.overlayVideo;
+  if (video) {
+    video.load(); // Start preloading the video asset
+  }
+
+  // Track if video metadata is ready
+  let videoReady = false;
+  const onVideoReady = () => {
+    videoReady = true;
+  };
+
+  if (video) {
+    if (video.readyState >= 1) {
+      videoReady = true;
+    } else {
+      video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+      video.addEventListener('canplaythrough', onVideoReady, { once: true });
+    }
+  } else {
+    videoReady = true;
+  }
+
+  // Safety fallback: continue after 5 seconds even if video metadata hasn't loaded
+  setTimeout(() => {
+    videoReady = true;
+  }, 5000);
+
   const tick = () => {
-    // Simulate a short load (500ms total)
-    progress += Math.random() * 18 + 6;
-    if (progress > 100) progress = 100;
+    // Hold progress at 90% if video is not ready yet
+    if (progress < 90) {
+      progress += Math.random() * 12 + 4;
+      if (progress >= 90) progress = 90;
+    } else if (progress >= 90 && videoReady) {
+      progress = 100;
+    }
+
     els.progressFill.style.width = `${progress}%`;
 
     if (progress < 100) {
-      requestAnimationFrame(() => setTimeout(tick, 60));
+      setTimeout(tick, 80);
     } else {
+      if (video) {
+        video.removeEventListener('loadedmetadata', onVideoReady);
+        video.removeEventListener('canplaythrough', onVideoReady);
+      }
       // Brief pause then transition
       setTimeout(() => showScreen('welcome'), 350);
     }
@@ -654,7 +690,7 @@ async function launchWebXR() {
     
     // Hide standard elements
     els.cameraFeed.style.display = 'none';
-    els.overlayContainer.style.display = 'none';
+    els.overlayContainer.classList.add('hidden-ar-element');
     
     // Show HUD controls and AR screen
     showScreen('ar');
@@ -839,7 +875,7 @@ function cleanupWebXR() {
   if (canvas) canvas.remove();
 
   els.cameraFeed.style.display = 'block';
-  els.overlayContainer.style.display = 'block';
+  els.overlayContainer.classList.remove('hidden-ar-element');
   els.switchCamBtn.style.display = 'flex';
   if (els.recenterBtn) els.recenterBtn.style.display = 'flex';
   
@@ -911,7 +947,7 @@ async function launchStandardAR() {
   screens.ar.appendChild(canvas);
 
   // Hide 2D CSS floating elements (we render in WebGL now!)
-  els.overlayContainer.style.display = 'none';
+  els.overlayContainer.classList.add('hidden-ar-element');
 
   fbRenderer = new THREE.WebGLRenderer({
     canvas: canvas,
@@ -1104,7 +1140,7 @@ function cleanupFallbackAR() {
   if (canvas) canvas.remove();
 
   // Restore DOM overlays
-  els.overlayContainer.style.display = 'block';
+  els.overlayContainer.classList.remove('hidden-ar-element');
 
   fbScene = null;
   fbCamera = null;
@@ -1136,7 +1172,7 @@ async function launchStandard2DAR() {
   }
   
   // Restore original 2D HTML5 overlays
-  els.overlayContainer.style.display = 'block';
+  els.overlayContainer.classList.remove('hidden-ar-element');
 
   showScreen('ar');
   initOverlayVideo();
