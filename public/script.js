@@ -736,8 +736,8 @@ async function launchWebXR() {
       fragmentShader: chromaKeyShader.fragmentShader,
       uniforms: {
         map: { value: xrVideoTexture },
-        colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
-        similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.26 }, // Sensitivity threshold
+        colorKey: { value: new THREE.Color(0x00ff00) }, // Green screen background
+        similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.40 }, // Sensitivity threshold
         smoothness: { value: 0.12 }  // Edge blend
       },
       transparent: true,
@@ -986,8 +986,8 @@ async function launchStandardAR() {
     fragmentShader: chromaKeyShader.fragmentShader,
     uniforms: {
       map: { value: fbTexture },
-      colorKey: { value: new THREE.Color(0x343537) }, // Dark grey road background
-      similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.26 }, // Sensitivity threshold
+      colorKey: { value: new THREE.Color(0x00ff00) }, // Green screen background
+      similarity: { value: els.chromaSimilarity ? parseFloat(els.chromaSimilarity.value) : 0.40 }, // Sensitivity threshold
       smoothness: { value: 0.12 }  // Edge blend
     },
     transparent: true,
