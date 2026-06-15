@@ -1,0 +1,32 @@
+{
+  "name": "qr-ar-video-experience",
+  "version": "1.0.0",
+  "description": "Browser-based AR-like floating video experience triggered by QR code scan",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "tunnel": "node tunnel.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.21.0",
+    "helmet": "^8.0.0"
+  },
+  "keywords": [
+    "ar",
+    "augmented-reality",
+    "qr-code",
+    "webrtc",
+    "camera",
+    "video-overlay"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "localtunnel": "^2.0.2"
+  }
+}

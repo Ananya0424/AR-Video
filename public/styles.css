@@ -1,0 +1,732 @@
+/* ═══════════════════════════════════════════════════════════════
+   QR AR Video Experience — Stylesheet
+   Premium dark glassmorphism design with smooth transitions
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Custom Properties ─────────────────────────────────────── */
+:root {
+  --bg-dark:    #0a0a1a;
+  --bg-card:    rgba(255, 255, 255, 0.06);
+  --glass:      rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --accent:     #6c5ce7;
+  --accent-glow: rgba(108, 92, 231, 0.45);
+  --accent-light: #a29bfe;
+  --text:       #f0f0f5;
+  --text-muted: rgba(240, 240, 245, 0.55);
+  --danger:     #ff6b6b;
+  --success:    #00cec9;
+  --radius:     16px;
+  --radius-sm:  10px;
+  --font:       'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Reset ─────────────────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Screen System ─────────────────────────────────────────── */
+.screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition), visibility var(--transition);
+  z-index: 1;
+  will-change: opacity;
+}
+
+.screen.active {
+  opacity: 1;
+  visibility: visible;
+  z-index: 10;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   1. LOADING SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+#loading-screen {
+  background: var(--bg-dark);
+  z-index: 100;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 32px;
+  text-align: center;
+}
+
+/* Animated Orb */
+.orb-container {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--accent-light), var(--accent));
+  box-shadow: 0 0 40px var(--accent-glow), 0 0 80px var(--accent-glow);
+  animation: orb-pulse 2s ease-in-out infinite;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: orb-ring-expand 2.4s ease-out infinite;
+}
+
+.orb-ring--delay {
+  animation-delay: 0.8s;
+}
+
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.15); }
+}
+
+@keyframes orb-ring-expand {
+  0%   { transform: scale(0.5); opacity: 0.7; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.loading-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--text), var(--accent-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.loading-subtitle {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Progress bar */
+.progress-bar {
+  width: min(260px, 70vw);
+  height: 4px;
+  border-radius: 4px;
+  background: var(--glass);
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  transition: width 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   2. WELCOME SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+#welcome-screen {
+  background: var(--bg-dark);
+  background-image:
+    radial-gradient(circle at 20% 80%, rgba(108, 92, 231, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(0, 206, 201, 0.08) 0%, transparent 50%);
+}
+
+.welcome-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 40px 28px;
+  max-width: 420px;
+  text-align: center;
+  animation: fade-up 0.7s ease both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.welcome-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--accent-light);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.welcome-title {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  background: linear-gradient(135deg, #ffffff, var(--accent-light));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.welcome-desc {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 340px;
+}
+
+.welcome-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+/* Primary button */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 36px;
+  border: none;
+  border-radius: 60px;
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #8b7cf7);
+  box-shadow: 0 4px 24px var(--accent-glow);
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+  -webkit-user-select: none;
+  user-select: none;
+  outline: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), transparent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.btn-primary:hover::after,
+.btn-primary:focus-visible::after {
+  opacity: 1;
+}
+
+.btn-primary:active {
+  transform: scale(0.96);
+}
+
+.btn-primary__icon {
+  display: flex;
+  align-items: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   3. ERROR SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+#error-screen {
+  background: var(--bg-dark);
+}
+
+.error-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 40px 28px;
+  max-width: 420px;
+  text-align: center;
+  animation: fade-up 0.5s ease both;
+}
+
+.error-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  color: var(--danger);
+}
+
+.error-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.error-desc {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.error-steps {
+  text-align: left;
+  width: 100%;
+  padding: 0;
+}
+
+.error-steps ol {
+  list-style: none;
+  counter-reset: err-step;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+}
+
+.error-steps li {
+  counter-increment: err-step;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding-left: 28px;
+  position: relative;
+}
+
+.error-steps li::before {
+  content: counter(err-step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   4. AR EXPERIENCE SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+#ar-screen {
+  background: #000;
+}
+
+/* Camera feed fills the viewport */
+#camera-feed {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+/* ── Floating Overlay ──────────────────────────────────────── */
+#overlay-container {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  z-index: 5;
+  /* Centered initially */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  touch-action: none;
+  will-change: transform;
+  cursor: grab;
+  /* Subtle floating shadow */
+  filter: drop-shadow(0 8px 32px rgba(108, 92, 231, 0.35));
+  transition: filter 0.3s ease;
+}
+
+#overlay-container:active {
+  cursor: grabbing;
+  filter: drop-shadow(0 12px 48px rgba(108, 92, 231, 0.5));
+}
+
+#overlay-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 12px;
+}
+
+/* Hide video if source fails — placeholder takes over */
+#overlay-video.hidden {
+  display: none;
+}
+
+/* ── Placeholder (animated 3D cube) ────────────────────────── */
+.overlay-placeholder {
+  display: none; /* shown via JS when video is missing */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  gap: 12px;
+}
+
+.overlay-placeholder.visible {
+  display: flex;
+}
+
+.placeholder-cube {
+  width: 90px;
+  height: 90px;
+  position: relative;
+  transform-style: preserve-3d;
+  animation: cube-spin 6s linear infinite;
+}
+
+@keyframes cube-spin {
+  from { transform: rotateX(-25deg) rotateY(0deg); }
+  to   { transform: rotateX(-25deg) rotateY(360deg); }
+}
+
+.cube-face {
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border: 2px solid var(--accent-light);
+  background: rgba(108, 92, 231, 0.12);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 8px;
+}
+
+.cube-front  { transform: translateZ(45px); }
+.cube-back   { transform: rotateY(180deg) translateZ(45px); }
+.cube-left   { transform: rotateY(-90deg) translateZ(45px); }
+.cube-right  { transform: rotateY(90deg) translateZ(45px); }
+.cube-top    { transform: rotateX(90deg) translateZ(45px); }
+.cube-bottom { transform: rotateX(-90deg) translateZ(45px); }
+
+.placeholder-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-light);
+  text-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* ── HUD Controls ──────────────────────────────────────────── */
+.ar-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  padding: max(env(safe-area-inset-top, 12px), 12px) 16px 12px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.ar-hud.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-btn {
+  pointer-events: auto;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+  outline: none;
+}
+
+.hud-btn:active {
+  transform: scale(0.9);
+  background: rgba(0, 0, 0, 0.65);
+}
+
+/* ── Instruction Toast ─────────────────────────────────────── */
+.ar-toast {
+  position: absolute;
+  bottom: max(env(safe-area-inset-bottom, 24px), 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 10px 22px;
+  border-radius: 60px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  pointer-events: none;
+}
+
+.ar-toast.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(16px);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Small phones */
+@media (max-width: 380px) {
+  .welcome-title { font-size: 1.6rem; }
+  .btn-primary { padding: 14px 28px; font-size: 0.92rem; }
+  #overlay-container { width: 170px; height: 170px; }
+}
+
+/* Landscape orientation */
+@media (orientation: landscape) and (max-height: 500px) {
+  .welcome-content,
+  .error-content,
+  .loading-content {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 32px;
+  }
+
+  .welcome-icon,
+  .error-icon,
+  .orb-container {
+    width: 56px;
+    height: 56px;
+  }
+
+  .orb { width: 28px; height: 28px; }
+
+  .welcome-title,
+  .loading-title,
+  .error-title {
+    font-size: 1.25rem;
+    width: 100%;
+  }
+
+  .welcome-desc,
+  .loading-subtitle,
+  .error-desc {
+    font-size: 0.82rem;
+    width: 100%;
+  }
+
+  .btn-primary { padding: 12px 24px; font-size: 0.88rem; }
+  #overlay-container { width: 160px; height: 160px; }
+}
+
+/* Tablets */
+@media (min-width: 768px) {
+  .welcome-title { font-size: 2.5rem; }
+  .welcome-desc  { font-size: 1.05rem; max-width: 440px; }
+  .btn-primary   { padding: 18px 44px; font-size: 1.1rem; }
+  #overlay-container { width: 300px; height: 300px; }
+}
+
+/* ── Utility ───────────────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  border: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   5. DESKTOP QR CARD STYLES
+   ═══════════════════════════════════════════════════════════════ */
+.desktop-qr-card {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 280px;
+  background: rgba(10, 10, 26, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 500;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: slide-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  color: var(--text);
+  pointer-events: auto;
+}
+
+.desktop-qr-card.hidden {
+  display: none !important;
+}
+
+.qr-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.qr-card-header h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+#close-qr-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+  transition: color var(--transition);
+}
+
+#close-qr-btn:hover {
+  color: var(--text);
+}
+
+.qr-code-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: white;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.1);
+}
+
+.qr-code-wrapper img {
+  width: calc(100% - 20px);
+  height: calc(100% - 20px);
+  object-fit: contain;
+  z-index: 2;
+  transition: opacity 0.3s ease;
+}
+
+.qr-code-wrapper img[src=""] {
+  opacity: 0;
+}
+
+.qr-loading-spinner {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(108, 92, 231, 0.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: qr-spin 1s linear infinite;
+  z-index: 1;
+}
+
+@keyframes qr-spin {
+  to { transform: rotate(360deg); }
+}
+
+.desktop-qr-card p {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.qr-url-display {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.qr-url-display span {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--accent-light);
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateY(30px) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* On small screens (touch/mobile devices), hide the desktop QR card by default */
+@media (max-width: 768px) {
+  .desktop-qr-card {
+    display: none !important;
+  }
+}
+
