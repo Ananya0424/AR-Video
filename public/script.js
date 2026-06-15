@@ -12,6 +12,29 @@
 
 'use strict';
 
+// Global error logging for debugging on mobile devices
+window.addEventListener('error', (event) => {
+  console.error('Global JS error:', event.error || event.message);
+  try {
+    if (typeof showError === 'function' && typeof screens !== 'undefined' && screens.error && !screens.error.classList.contains('active')) {
+      showError('generic', event.message + ' (Line: ' + event.lineno + ':' + event.colno + ')');
+    }
+  } catch (e) {
+    console.error('Failed to show error screen:', e);
+  }
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled Promise Rejection:', event.reason);
+  try {
+    if (typeof showError === 'function' && typeof screens !== 'undefined' && screens.error && !screens.error.classList.contains('active')) {
+      showError('generic', String(event.reason?.message || event.reason));
+    }
+  } catch (e) {
+    console.error('Failed to show error screen:', e);
+  }
+});
+
 /* ═══════════════════════════════════════════════════════════════
    DOM References
    ═══════════════════════════════════════════════════════════════ */
@@ -278,13 +301,44 @@ async function startCamera() {
     }
   }
 
-  els.cameraFeed.srcObject = cameraStream;
-
-  // Wait until the video is actually playing
+  // Set up promise to wait for metadata & play without hanging
   await new Promise((resolve) => {
-    els.cameraFeed.onloadedmetadata = () => {
-      els.cameraFeed.play().then(resolve).catch(resolve);
+    let resolved = false;
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        els.cameraFeed.onloadedmetadata = null;
+        els.cameraFeed.onplaying = null;
+        resolve();
+      }
     };
+
+    // If metadata is already loaded
+    if (els.cameraFeed.readyState >= 1) {
+      els.cameraFeed.play().then(done).catch((e) => {
+        console.warn('cameraFeed play failed:', e);
+        done();
+      });
+    }
+
+    els.cameraFeed.onloadedmetadata = () => {
+      els.cameraFeed.play().then(done).catch((e) => {
+        console.warn('cameraFeed play failed in event:', e);
+        done();
+      });
+    };
+
+    // Also listen to playing event
+    els.cameraFeed.onplaying = done;
+
+    // Safety timeout: 3 seconds
+    setTimeout(() => {
+      console.warn('Camera metadata timeout, forcing start');
+      els.cameraFeed.play().then(done).catch(done);
+    }, 3000);
+
+    // Set srcObject to start loading
+    els.cameraFeed.srcObject = cameraStream;
   });
 
   return true;
@@ -1069,11 +1123,45 @@ async function launchStandard2DAR() {
   showToast();
 }
 
+/**
+ * Ensures the overlay video's metadata is loaded so we have the correct aspect ratio.
+ * Resolves after a maximum timeout of 2 seconds.
+ */
+function ensureVideoMetadata() {
+  return new Promise((resolve) => {
+    const video = els.overlayVideo;
+    // If metadata is already loaded
+    if (video.readyState >= 1 && video.videoWidth > 0) {
+      resolve();
+      return;
+    }
+    
+    let resolved = false;
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        video.removeEventListener('loadedmetadata', done);
+        video.removeEventListener('error', done);
+        resolve();
+      }
+    };
+    
+    video.addEventListener('loadedmetadata', done);
+    video.addEventListener('error', done);
+    
+    // Safety timeout: 2 seconds
+    setTimeout(done, 2000);
+  });
+}
+
 async function launchAR() {
   els.startBtn.disabled = true;
   els.startBtn.textContent = 'Starting…';
 
   try {
+    // Wait for overlay video metadata to load so dimensions are correct
+    await ensureVideoMetadata();
+
     // If Three.js failed to load, go directly to CSS AR
     if (typeof THREE === 'undefined') {
       console.warn('Three.js not loaded, falling back to 2D CSS AR');
