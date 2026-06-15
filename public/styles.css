@@ -816,9 +816,9 @@ html, body {
   position: absolute !important;
   left: -9999px !important;
   top: -9999px !important;
-  width: 1px !important;
-  height: 1px !important;
-  opacity: 0 !important;
+  width: 270px !important;
+  height: 480px !important;
+  opacity: 0.01 !important;
   pointer-events: none !important;
   overflow: hidden !important;
 }

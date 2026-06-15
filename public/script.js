@@ -722,7 +722,7 @@ async function launchWebXR() {
     xrVideoTexture.format = THREE.RGBAFormat;
 
     const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
-    const planeW = 0.8; // 0.8 meters wide
+    const planeW = 0.6; // 0.6 meters wide
     const planeH = planeW / aspect;
 
     const geometry = new THREE.PlaneGeometry(planeW, planeH);
@@ -955,7 +955,7 @@ async function launchStandardAR() {
   fbTexture.magFilter = THREE.LinearFilter;
 
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
-  const planeW = 1.0; // 1 meter wide in world space
+  const planeW = 0.6; // 0.6 meters wide in world space
   const planeH = planeW / aspect;
 
   const geometry = new THREE.PlaneGeometry(planeW, planeH);
