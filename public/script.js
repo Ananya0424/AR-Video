@@ -483,7 +483,7 @@ function showToast() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   7. WebXR Immersive AR (Three.js) & Gesture Engine
+   7. WebXR Immersive AR (Three.js with Hit-Testing)
    ═══════════════════════════════════════════════════════════════ */
 let xrSession = null;
 let xrRenderer = null;
@@ -491,11 +491,14 @@ let xrScene = null;
 let xrCamera = null;
 let xrVideoMesh = null;
 let xrVideoTexture = null;
+let xrReticle = null;
+let xrHitTestSource = null;
+let xrLocalSpace = null;
 let isWebXRMode = false;
+let isVideoPlaced = false;
 
-// WebXR mesh state
+// WebXR scale state
 let xrScale = 1.0;
-let xrPosition = { x: 0, y: 0.1, z: -1.2 }; // positioned slightly up, 1.2m in front
 
 /**
  * Check if the browser supports immersive-ar WebXR session.
@@ -513,7 +516,7 @@ async function checkWebXRSupport() {
 }
 
 /**
- * Starts an immersive-ar WebXR session.
+ * Starts an immersive-ar WebXR session with world-space hit testing.
  */
 async function launchWebXR() {
   try {
@@ -529,25 +532,26 @@ async function launchWebXR() {
     xrRenderer = new THREE.WebGLRenderer({
       canvas: canvas,
       antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true
+      alpha: true
     });
     xrRenderer.setSize(window.innerWidth, window.innerHeight);
     xrRenderer.setPixelRatio(window.devicePixelRatio);
     xrRenderer.xr.enabled = true;
 
-    // 2. Request the WebXR immersive-ar session
+    // 2. Request session with hit-test feature for floor/table detection
     const session = await navigator.xr.requestSession('immersive-ar', {
-      optionalFeatures: ['local-floor', 'bounded-floor']
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['local-floor']
     });
     
     xrSession = session;
     isWebXRMode = true;
+    isVideoPlaced = false;
     
     // Mount canvas inside AR screen container
     screens.ar.appendChild(canvas);
     
-    // Hide standard camera-feed and overlay elements
+    // Hide standard elements
     els.cameraFeed.style.display = 'none';
     els.overlayContainer.style.display = 'none';
     
@@ -561,127 +565,150 @@ async function launchWebXR() {
     xrScene = new THREE.Scene();
     xrCamera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-    // 4. Create Video Mesh
-    const video = els.overlayVideo;
-    video.play().catch((err) => {
-      console.warn('Video autoplay blocked in WebXR session, playing on touch:', err);
-    });
+    // Add lights for reticle rendering
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+    xrScene.add(ambientLight);
 
+    // 4. Create Placement Reticle (Ring indicator)
+    const reticleGeo = new THREE.RingGeometry(0.12, 0.15, 32);
+    reticleGeo.rotateX(-Math.PI / 2); // align flat on floor
+    const reticleMat = new THREE.MeshBasicMaterial({ color: 0x6c5ce7, side: THREE.DoubleSide });
+    xrReticle = new THREE.Mesh(reticleGeo, reticleMat);
+    xrReticle.matrixAutoUpdate = false;
+    xrReticle.visible = false;
+    xrScene.add(xrReticle);
+
+    // 5. Create Video Mesh (hidden initially until tapped/placed on floor)
+    const video = els.overlayVideo;
     xrVideoTexture = new THREE.VideoTexture(video);
     xrVideoTexture.minFilter = THREE.LinearFilter;
     xrVideoTexture.magFilter = THREE.LinearFilter;
     xrVideoTexture.format = THREE.RGBAFormat;
 
-    // Aspect ratio plane (width 0.8m, height adjusted for 16:9 or similar)
     const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
-    const planeW = 0.8;
+    const planeW = 0.8; // 0.8 meters wide
     const planeH = planeW / aspect;
 
     const geometry = new THREE.PlaneGeometry(planeW, planeH);
+    // Move geometry center up so it stands on the floor anchor point rather than splitting it
+    geometry.translate(0, planeH / 2, 0);
+
     const material = new THREE.MeshBasicMaterial({
       map: xrVideoTexture,
       side: THREE.DoubleSide
     });
 
     xrVideoMesh = new THREE.Mesh(geometry, material);
-    xrVideoMesh.position.set(xrPosition.x, xrPosition.y, xrPosition.z);
+    xrVideoMesh.visible = false; // hidden until placed
     xrScene.add(xrVideoMesh);
 
-    // 5. Connect renderer to WebXR session
+    // 6. Connect WebXR reference spaces
+    const viewerSpace = await session.requestReferenceSpace('viewer');
+    xrHitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+    xrLocalSpace = await session.requestReferenceSpace('local');
+
     await xrRenderer.xr.setSession(session);
 
-    // 6. Handle session end
+    // 7. Click to place video on surface reticle
+    session.addEventListener('select', () => {
+      if (xrReticle.visible && !isVideoPlaced) {
+        // Position mesh on the reticle matrix (table/floor coordinate)
+        xrVideoMesh.position.setFromMatrixPosition(xrReticle.matrix);
+        
+        // Orient mesh to stand up facing the viewer
+        const reticleRotation = new THREE.Matrix4().extractRotation(xrReticle.matrix);
+        xrVideoMesh.rotation.setFromRotationMatrix(reticleRotation);
+        
+        // Face camera initially
+        xrVideoMesh.lookAt(xrCamera.position.x, xrVideoMesh.position.y, xrCamera.position.z);
+        
+        xrVideoMesh.visible = true;
+        isVideoPlaced = true;
+        xrReticle.visible = false; // Hide reticle after placing
+
+        // Start playback
+        video.play().catch((err) => console.warn('Video play blocked:', err));
+        
+        // Hide toast instruction
+        els.arToast.classList.add('hidden');
+      }
+    });
+
+    // 8. Scale gesture inside WebXR session
+    initWebXRScaleControls(canvas);
+
+    // 9. Frame loop for Hit-Test calculation and render
+    xrRenderer.setAnimationLoop((time, frame) => {
+      if (!frame) return;
+
+      // Update hit test reticle if not placed yet
+      if (!isVideoPlaced && xrHitTestSource) {
+        const hitTestResults = frame.getHitTestResults(xrHitTestSource);
+        if (hitTestResults.length > 0) {
+          const hit = hitTestResults[0];
+          const pose = hit.getPose(xrLocalSpace);
+          
+          xrReticle.visible = true;
+          xrReticle.matrix.fromArray(pose.transform.matrix);
+        } else {
+          xrReticle.visible = false;
+        }
+      }
+
+      if (xrVideoTexture) xrVideoTexture.needsUpdate = true;
+      xrRenderer.render(xrScene, xrCamera);
+    });
+
+    // Handle session exit
     session.addEventListener('end', () => {
       cleanupWebXR();
       showScreen('welcome');
     });
 
-    // 7. Touch controls inside WebXR Canvas
-    initWebXRTouchControls(canvas);
-
-    // 8. Animation Loop
-    xrRenderer.setAnimationLoop(() => {
-      if (xrVideoTexture) xrVideoTexture.needsUpdate = true;
-      xrRenderer.render(xrScene, xrCamera);
-    });
-
   } catch (err) {
-    console.error('Failed to initialize WebXR session, falling back to camera mode:', err);
+    console.error('WebXR session failed, falling back:', err);
     cleanupWebXR();
-    // Fall back immediately to normal camera/overlay view
     await launchStandardAR();
   }
 }
 
 /**
- * Set up touch listeners directly on the WebXR canvas for WebXR spatial drag & pinch.
+ * Handle scaling using touch pinch gesture inside WebXR session.
  */
-function initWebXRTouchControls(canvas) {
-  let startX, startY;
+function initWebXRScaleControls(canvas) {
   let startDist = 0;
   let startScale = 1;
-  let startMeshPos = { x: 0, y: 0 };
-  let isDragging = false;
 
   canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    if (e.touches.length === 1) {
-      isDragging = true;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      startMeshPos.x = xrVideoMesh.position.x;
-      startMeshPos.y = xrVideoMesh.position.y;
-    } else if (e.touches.length === 2) {
-      isDragging = false;
+    if (e.touches.length === 2) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       startDist = Math.hypot(dx, dy);
       startScale = xrScale;
     }
-  }, { passive: false });
+  }, { passive: true });
 
   canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (!xrVideoMesh) return;
-
-    if (e.touches.length === 1 && isDragging) {
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-
-      // Map screen delta coordinates to spatial meters
-      // dx is horizontal movement, dy is vertical movement
-      xrVideoMesh.position.x = startMeshPos.x + (dx * 0.003);
-      xrVideoMesh.position.y = startMeshPos.y - (dy * 0.003); // invert Y
-    } else if (e.touches.length === 2) {
+    if (e.touches.length === 2 && xrVideoMesh && isVideoPlaced) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const dist = Math.hypot(dx, dy);
 
       if (startDist > 0) {
         xrScale = Math.max(0.3, Math.min(4.0, startScale * (dist / startDist)));
-        xrVideoMesh.scale.set(xrScale, xrScale, 1.0);
+        xrVideoMesh.scale.set(xrScale, xrScale, xrScale);
       }
     }
-  }, { passive: false });
-
-  canvas.addEventListener('touchend', (e) => {
-    if (e.touches.length < 2) {
-      isDragging = e.touches.length === 1;
-      if (isDragging) {
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-        startMeshPos.x = xrVideoMesh.position.x;
-        startMeshPos.y = xrVideoMesh.position.y;
-      }
-    }
-  });
+  }, { passive: true });
 }
 
 /**
- * Shut down the WebXR session and release rendering resources.
+ * Cleans up WebXR WebGL instances.
  */
 function cleanupWebXR() {
   isWebXRMode = false;
+  isVideoPlaced = false;
+  xrScale = 1.0;
   
   if (xrRenderer) {
     xrRenderer.setAnimationLoop(null);
@@ -694,11 +721,9 @@ function cleanupWebXR() {
     xrSession = null;
   }
 
-  // Remove WebXR Canvas
   const canvas = $('webxr-canvas');
   if (canvas) canvas.remove();
 
-  // Restore normal DOM elements
   els.cameraFeed.style.display = 'block';
   els.overlayContainer.style.display = 'block';
   els.switchCamBtn.style.display = 'flex';
@@ -707,53 +732,275 @@ function cleanupWebXR() {
   xrCamera = null;
   xrVideoMesh = null;
   xrVideoTexture = null;
+  xrReticle = null;
+  xrHitTestSource = null;
+  xrLocalSpace = null;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   8. Standard AR Experience (Graceful Fallback Mode)
+   8. Gyroscope-based WebGL AR (Graceful Fallback Mode for iOS)
    ═══════════════════════════════════════════════════════════════ */
+let fbRenderer = null;
+let fbScene = null;
+let fbCamera = null;
+let fbMesh = null;
+let fbTexture = null;
+let isFallbackARMode = false;
+
+// Fallback positioning state
+let fbScale = 1.0;
+let fbPosition = { x: 0, y: 0, z: -1.8 }; // 1.8m in front in 3D world space
 
 /**
- * Fallback entry point. Opens 2D camera feed and floating video overlay.
+ * Request DeviceOrientation permissions (required for iOS 13+ Safari)
  */
-async function launchStandardAR() {
-  const ok = await startCamera();
-  if (!ok) {
-    els.startBtn.disabled = false;
-    els.startBtn.innerHTML = `
-      <span class="btn-primary__icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
-      </span>
-      Start AR Experience`;
-    return;
+async function requestGyroPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const permission = await DeviceOrientationEvent.requestPermission();
+      return permission === 'granted';
+    } catch (err) {
+      console.warn('Gyro permission prompt denied/failed:', err);
+      return false;
+    }
   }
-
-  showScreen('ar');
-  initOverlayVideo();
-  initTouchGestures();
-  initHudAutoHide();
-  showToast();
+  return true; // Already allowed or Android (doesn't require explicit prompt)
 }
 
 /**
- * Unified Entry Point: Decides between WebXR and standard camera fallback.
+ * WebGL scene with device orientation camera control to anchor the video in 3D room.
  */
+async function launchStandardAR() {
+  // Try requesting gyroscope permissions first
+  const gyroOk = await requestGyroPermission();
+
+  // Start back camera feed in background
+  const cameraOk = await startCamera();
+  if (!cameraOk) {
+    els.startBtn.disabled = false;
+    els.startBtn.textContent = 'Start AR Experience';
+    return;
+  }
+
+  isFallbackARMode = true;
+
+  // 1. Set up transparent WebGL overlay canvas over the camera feed
+  const canvas = document.createElement('canvas');
+  canvas.id = 'fallback-ar-canvas';
+  canvas.style.position = 'absolute';
+  canvas.style.inset = '0';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.zIndex = '2'; // layer above camera, below HUD
+  canvas.style.pointerEvents = 'auto'; // allow touch drag/pinch
+  screens.ar.appendChild(canvas);
+
+  // Hide 2D CSS floating elements (we render in WebGL now!)
+  els.overlayContainer.style.display = 'none';
+
+  fbRenderer = new THREE.WebGLRenderer({
+    canvas: canvas,
+    antialias: true,
+    alpha: true
+  });
+  fbRenderer.setSize(window.innerWidth, window.innerHeight);
+  fbRenderer.setPixelRatio(window.devicePixelRatio);
+
+  // 2. Set up Scene & Camera
+  fbScene = new THREE.Scene();
+  fbCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+  
+  // Align camera looking straight forward relative to default orientation
+  fbCamera.rotation.reorder('YXZ');
+
+  // 3. Create Video Texture Mesh
+  const video = els.overlayVideo;
+  video.play().catch(() => {
+    // Autoplay fallback inside click handler
+    const forcePlay = () => { video.play(); document.removeEventListener('click', forcePlay); };
+    document.addEventListener('click', forcePlay);
+  });
+
+  fbTexture = new THREE.VideoTexture(video);
+  fbTexture.minFilter = THREE.LinearFilter;
+  fbTexture.magFilter = THREE.LinearFilter;
+
+  const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
+  const planeW = 1.0; // 1 meter wide in world space
+  const planeH = planeW / aspect;
+
+  const geometry = new THREE.PlaneGeometry(planeW, planeH);
+  const material = new THREE.MeshBasicMaterial({
+    map: fbTexture,
+    side: THREE.DoubleSide
+  });
+
+  fbMesh = new THREE.Mesh(geometry, material);
+  fbMesh.position.set(fbPosition.x, fbPosition.y, fbPosition.z);
+  fbScene.add(fbMesh);
+
+  // Show screens and initialize HUD
+  showScreen('ar');
+  initHudAutoHide();
+  showToast();
+
+  // 4. Bind Gyroscope DeviceOrientation to rotate camera
+  if (gyroOk) {
+    window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+  }
+
+  // 5. Touch events on Canvas for dragging/scaling the 3D plane
+  initFallbackTouchControls(canvas);
+
+  // 6. Start WebGL animation loop
+  function animate() {
+    if (!isFallbackARMode) return;
+    requestAnimationFrame(animate);
+
+    if (fbTexture) fbTexture.needsUpdate = true;
+    fbRenderer.render(fbScene, fbCamera);
+  }
+  requestAnimationFrame(animate);
+
+  // Handle window resizing
+  window.addEventListener('resize', onFallbackWindowResize);
+}
+
+/**
+ * Handle phone rotations using Euler angles mapped to Quaternion camera rotation.
+ */
+function handleDeviceOrientation(e) {
+  if (!fbCamera) return;
+
+  // Degrees to Radians
+  const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0; // Compass (Z)
+  const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;    // Tilt front/back (X)
+  const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;  // Tilt left/right (Y)
+
+  // Device orientation Euler order is YXZ
+  const euler = new THREE.Euler(beta, gamma, alpha, 'YXZ');
+  
+  // Offset reference to make WebGL match mobile camera orientation
+  const reference = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0, 'YXZ'));
+  const device = new THREE.Quaternion().setFromEuler(euler);
+  
+  fbCamera.quaternion.multiplyQuaternions(reference, device);
+}
+
+/**
+ * Local 3D touch controls: translate mesh in camera view space, and pinch to zoom.
+ */
+function initFallbackTouchControls(canvas) {
+  let startX, startY;
+  let startDist = 0;
+  let startScale = 1;
+  let startMeshPos = { x: 0, y: 0 };
+  let isDragging = false;
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      isDragging = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startMeshPos.x = fbMesh.position.x;
+      startMeshPos.y = fbMesh.position.y;
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      startDist = Math.hypot(dx, dy);
+      startScale = fbScale;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!fbMesh) return;
+
+    if (e.touches.length === 1 && isDragging) {
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+
+      // Translate mesh in camera plane space (scaled to meters)
+      fbMesh.position.x = startMeshPos.x + (dx * 0.0035);
+      fbMesh.position.y = startMeshPos.y - (dy * 0.0035);
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+
+      if (startDist > 0) {
+        fbScale = Math.max(0.3, Math.min(4.0, startScale * (dist / startDist)));
+        fbMesh.scale.set(fbScale, fbScale, fbScale);
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      isDragging = e.touches.length === 1;
+      if (isDragging) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startMeshPos.x = fbMesh.position.x;
+        startMeshPos.y = fbMesh.position.y;
+      }
+    }
+  });
+}
+
+function onFallbackWindowResize() {
+  if (!fbCamera || !fbRenderer) return;
+  fbCamera.aspect = window.innerWidth / window.innerHeight;
+  fbCamera.updateProjectionMatrix();
+  fbRenderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/**
+ * Shut down the standard fallback renderer and releases resources.
+ */
+function cleanupFallbackAR() {
+  isFallbackARMode = false;
+  fbScale = 1.0;
+
+  window.removeEventListener('resize', onFallbackWindowResize);
+  window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+
+  if (fbRenderer) {
+    fbRenderer.dispose();
+    fbRenderer = null;
+  }
+
+  const canvas = $('fallback-ar-canvas');
+  if (canvas) canvas.remove();
+
+  // Restore DOM overlays
+  els.overlayContainer.style.display = 'block';
+
+  fbScene = null;
+  fbCamera = null;
+  fbMesh = null;
+  fbTexture = null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   9. Unified Entry Point: WebXR with Gyroscope Fallback
+   ═══════════════════════════════════════════════════════════════ */
+
 async function launchAR() {
   els.startBtn.disabled = true;
   els.startBtn.textContent = 'Starting…';
 
   const webXRSupported = await checkWebXRSupport();
   if (webXRSupported) {
-    // If WebXR is supported, launch immersive 3D scene
+    // Android Chrome -> Immersive WebXR Hit-testing
     await launchWebXR();
   } else {
-    // Else, use browser HTML5 camera fallback
+    // iOS Safari / Desktop -> Gyroscope WebGL tracking
     await launchStandardAR();
   }
   
-  // Re-enable button text in case they return
   els.startBtn.disabled = false;
   els.startBtn.innerHTML = `
     <span class="btn-primary__icon">
@@ -777,6 +1024,9 @@ els.retryBtn.addEventListener('click', () => {
 els.closeBtn.addEventListener('click', () => {
   if (isWebXRMode) {
     cleanupWebXR();
+  } else if (isFallbackARMode) {
+    cleanupFallbackAR();
+    stopCamera();
   } else {
     stopCamera();
   }
