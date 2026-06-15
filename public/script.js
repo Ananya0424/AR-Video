@@ -59,7 +59,6 @@ const els = {
   overlayVideo:   $('overlay-video'),
   overlayPlaceholder: $('overlay-placeholder'),
   closeBtn:       $('close-btn'),
-  recenterBtn:    $('recenter-btn'),
   switchCamBtn:   $('switch-cam-btn'),
   arHud:          $('ar-hud'),
   arToast:        $('ar-toast'),
@@ -695,7 +694,6 @@ async function launchWebXR() {
     // Show HUD controls and AR screen
     showScreen('ar');
     els.switchCamBtn.style.display = 'none'; // WebXR manages cameras internally
-    if (els.recenterBtn) els.recenterBtn.style.display = 'none';
     initHudAutoHide();
     showToast();
 
@@ -877,7 +875,6 @@ function cleanupWebXR() {
   els.cameraFeed.style.display = 'block';
   els.overlayContainer.classList.remove('hidden-ar-element');
   els.switchCamBtn.style.display = 'flex';
-  if (els.recenterBtn) els.recenterBtn.style.display = 'flex';
   
   xrScene = null;
   xrCamera = null;
@@ -903,28 +900,9 @@ let fbScale = 1.0;
 let fbPosition = { x: 0, y: 0, z: -1.8 }; // 1.8m in front in 3D world space
 
 /**
- * Request DeviceOrientation permissions (required for iOS 13+ Safari)
- */
-async function requestGyroPermission() {
-  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try {
-      const permission = await DeviceOrientationEvent.requestPermission();
-      return permission === 'granted';
-    } catch (err) {
-      console.warn('Gyro permission prompt denied/failed:', err);
-      return false;
-    }
-  }
-  return true; // Already allowed or Android (doesn't require explicit prompt)
-}
-
-/**
- * WebGL scene with device orientation camera control to anchor the video in 3D room.
+ * WebGL scene to anchor the video in 3D room.
  */
 async function launchStandardAR() {
-  // Try requesting gyroscope permissions first
-  const gyroOk = await requestGyroPermission();
-
   // Start back camera feed in background
   const cameraOk = await startCamera();
   if (!cameraOk) {
@@ -1003,12 +981,7 @@ async function launchStandardAR() {
   initHudAutoHide();
   showToast();
 
-  // 4. Bind Gyroscope DeviceOrientation to rotate camera
-  if (gyroOk) {
-    window.addEventListener('deviceorientation', handleDeviceOrientation, true);
-  }
-
-  // 5. Touch events on Canvas for dragging/scaling the 3D plane
+  // 4. Touch events on Canvas for dragging/scaling the 3D plane
   initFallbackTouchControls(canvas);
 
   // 6. Start WebGL animation loop
@@ -1028,27 +1001,6 @@ async function launchStandardAR() {
 
   // Handle window resizing
   window.addEventListener('resize', onFallbackWindowResize);
-}
-
-/**
- * Handle phone rotations using Euler angles mapped to Quaternion camera rotation.
- */
-function handleDeviceOrientation(e) {
-  if (!fbCamera) return;
-
-  // Degrees to Radians
-  const alpha = e.alpha ? THREE.MathUtils.degToRad(e.alpha) : 0; // Compass (Z)
-  const beta = e.beta ? THREE.MathUtils.degToRad(e.beta) : 0;    // Tilt front/back (X)
-  const gamma = e.gamma ? THREE.MathUtils.degToRad(e.gamma) : 0;  // Tilt left/right (Y)
-
-  // Device orientation Euler order is YXZ
-  const euler = new THREE.Euler(beta, gamma, alpha, 'YXZ');
-  
-  // Offset reference to make WebGL match mobile camera orientation
-  const reference = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0, 'YXZ'));
-  const device = new THREE.Quaternion().setFromEuler(euler);
-  
-  fbCamera.quaternion.multiplyQuaternions(reference, device);
 }
 
 /**
@@ -1129,7 +1081,6 @@ function cleanupFallbackAR() {
   fbScale = 1.0;
 
   window.removeEventListener('resize', onFallbackWindowResize);
-  window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
 
   if (fbRenderer) {
     fbRenderer.dispose();
@@ -1286,19 +1237,6 @@ if (els.chromaSimilarity) {
       xrVideoMesh.material.uniforms.similarity.value = val;
     }
   });
-}
-
-// Recenter logic to snap the car in front of the phone camera direction
-function recenterARVideo() {
-  if (isFallbackARMode && fbMesh && fbCamera) {
-    console.log('Recentering fallback AR mesh...');
-    const forward = new THREE.Vector3(0, 0, -1.8).applyQuaternion(fbCamera.quaternion);
-    fbMesh.position.copy(forward);
-  }
-}
-
-if (els.recenterBtn) {
-  els.recenterBtn.addEventListener('click', recenterARVideo);
 }
 
 // Handle visibility change — pause/resume camera
