@@ -368,6 +368,14 @@ async function switchCamera() {
  */
 function initOverlayVideo() {
   const video = els.overlayVideo;
+  video.loop = true;
+
+  // Manual loop fallback for strict mobile browsers
+  video.addEventListener('ended', () => {
+    console.log('Video ended, forcing manual loop');
+    video.currentTime = 0;
+    video.play().catch((err) => console.warn('Manual loop play failed:', err));
+  });
 
   // Handle video load error (e.g. 404 for video.webm)
   video.addEventListener('error', () => {
@@ -739,6 +747,11 @@ async function launchWebXR() {
     xrRenderer.setAnimationLoop((time, frame) => {
       if (!frame) return;
 
+      // Auto-loop safety: play video if it has paused or gotten stuck
+      if (video.paused && !video.seeking && isWebXRMode) {
+        video.play().catch(() => {});
+      }
+
       // Update hit test reticle if not placed yet
       if (!isVideoPlaced && xrHitTestSource) {
         const hitTestResults = frame.getHitTestResults(xrHitTestSource);
@@ -962,6 +975,11 @@ async function launchStandardAR() {
   function animate() {
     if (!isFallbackARMode) return;
     requestAnimationFrame(animate);
+
+    // Auto-loop safety: play video if it has paused or gotten stuck
+    if (video.paused && !video.seeking && isFallbackARMode) {
+      video.play().catch(() => {});
+    }
 
     if (fbTexture) fbTexture.needsUpdate = true;
     fbRenderer.render(fbScene, fbCamera);

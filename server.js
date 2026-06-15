@@ -91,12 +91,18 @@ app.get('/api/info', (_req, res) => {
 
 app.use(
   express.static(path.join(__dirname, 'public'), {
-    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
     etag: true,
     setHeaders(res, filePath) {
       // Ensure correct MIME for transparent WebM videos
       if (filePath.endsWith('.webm')) {
         res.setHeader('Content-Type', 'video/webm');
+      }
+      
+      // Cache media assets, but not HTML/JS/CSS to avoid browser cache issues
+      if (filePath.endsWith('.mp4') || filePath.endsWith('.webm') || filePath.match(/\.(jpg|jpeg|png|gif|svg|ico)$/)) {
+        res.setHeader('Cache-Control', 'public, max-age=604800'); // 7 days
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       }
     },
   })
