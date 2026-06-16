@@ -566,6 +566,24 @@ function initHudAutoHide() {
   hudTimeout = setTimeout(() => els.arHud.classList.add('hidden'), 4000);
 }
 
+/**
+ * Transitions from the welcome screen to the AR experience.
+ */
+function enterARMode() {
+  els.welcomeScreen.classList.remove('active');
+  els.arScreen.classList.add('active');
+  
+  // Show toast instruction
+  els.arToast.classList.add('show');
+  setTimeout(() => els.arToast.classList.remove('show'), 4000);
+
+  // Attempt to play the AR video if it exists (requires user interaction first)
+  const video = document.getElementById('hologramVideo');
+  if (video) {
+    video.play().catch(e => console.warn('Autoplay prevented:', e));
+  }
+}
+
 function showToast() {
   els.arToast.classList.remove('hidden');
   clearTimeout(toastTimeout);
