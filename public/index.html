@@ -105,23 +105,38 @@
     <!-- Live camera feed -->
     <video id="camera-feed" autoplay playsinline muted></video>
 
-    <!-- Floating overlay container (draggable / pinchable) -->
+    <!-- Full-screen A-Frame container -->
     <div id="overlay-container">
-      <video id="overlay-video" autoplay loop muted playsinline webkit-playsinline
-        src="assets/video.mp4"
-        aria-label="AR floating video overlay"></video>
-      <!-- Placeholder shown when video.webm is missing -->
-      <div id="overlay-placeholder" class="overlay-placeholder">
-        <div class="placeholder-cube">
-          <div class="cube-face cube-front"></div>
-          <div class="cube-face cube-back"></div>
-          <div class="cube-face cube-left"></div>
-          <div class="cube-face cube-right"></div>
-          <div class="cube-face cube-top"></div>
-          <div class="cube-face cube-bottom"></div>
-        </div>
-        <span class="placeholder-label">AR Video</span>
-      </div>
+      <a-scene 
+        embedded
+        transparent="true"
+        alpha="true"
+        vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false"
+        renderer="alpha: true; antialias: true; colorManagement: true;"
+        style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;">
+        
+        <a-assets>
+          <a-asset-item id="robotModel" src="assets/robot.glb"></a-asset-item>
+        </a-assets>
+
+        <!-- The camera for the A-Frame scene -->
+        <a-entity camera position="0 0 0" look-controls="enabled: false"></a-entity>
+        
+        <!-- Lights -->
+        <a-light type="ambient" color="#ffffff" intensity="0.5"></a-light>
+        <a-light type="directional" color="#ffffff" intensity="0.8" position="-1 2 1"></a-light>
+
+        <!-- Hologram Robot Entity -->
+        <a-entity 
+          id="robot"
+          gltf-model="#robotModel"
+          position="0 0 -3"
+          scale="0.5 0.5 0.5"
+          animation-mixer="clip: Idle; loop: repeat;"
+          hologram-material>
+        </a-entity>
+      </a-scene>
     </div>
 
     <!-- Minimal HUD -->
@@ -141,11 +156,7 @@
       </button>
     </div>
 
-    <!-- Chroma Key Tuner (Floating Slider) -->
-    <div id="chroma-tuner" class="chroma-tuner">
-      <span class="tuner-label">Remove Background</span>
-      <input type="range" id="chroma-similarity" min="0.05" max="0.50" step="0.01" value="0.40" aria-label="Chroma Key Similarity" />
-    </div>
+    <!-- Chroma Key Tuner removed as we now use 3D models -->
 
     <!-- Instruction toast (auto-hides) -->
     <div id="ar-toast" class="ar-toast">
@@ -172,7 +183,9 @@
   </div>
 
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- A-Frame and A-Frame Extras for GLTF Animations -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.0.0/dist/aframe-extras.min.js"></script>
   <script src="script.js?v=1.0.4"></script>
 </body>
 </html>
