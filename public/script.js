@@ -13,7 +13,7 @@
 'use strict';
 
 /* ═══════════════════════════════════════════════════════════════
-   A-Frame Components
+   A-Frame Components & Shaders
    ═══════════════════════════════════════════════════════════════ */
 if (typeof AFRAME !== 'undefined') {
   AFRAME.registerComponent('hologram-material', {
@@ -38,6 +38,39 @@ if (typeof AFRAME !== 'undefined') {
         });
       });
     }
+  });
+
+  // Custom shader to remove green/black background from videos
+  AFRAME.registerShader('chromakey', {
+    schema: {
+      src: { type: 'map' },
+      color: { type: 'color', is: 'uniform', default: '#00ff00' },
+      similarity: { type: 'number', is: 'uniform', default: 0.4 },
+      smoothness: { type: 'number', is: 'uniform', default: 0.12 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D src;
+      uniform vec3 color;
+      uniform float similarity;
+      uniform float smoothness;
+      varying vec2 vUv;
+      void main() {
+        vec4 texColor = texture2D(src, vUv);
+        // For black background use distance(texColor.rgb, vec3(0.0))
+        float diff = distance(texColor.rgb, color);
+        float alpha = smoothstep(similarity, similarity + smoothness, diff);
+        // Add subtle blue glow for hologram effect
+        vec3 finalColor = texColor.rgb + vec3(0.0, 0.2, 0.4);
+        gl_FragColor = vec4(finalColor, texColor.a * alpha);
+      }
+    `
   });
 }
 
