@@ -16,7 +16,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="styles.css?v=1.0.4" />
+  <link rel="stylesheet" href="styles.css?v=1.1.0" />
+
+  <!--
+    CRITICAL: Load A-Frame FIRST, then extras, then our script.
+    A-Frame must be available BEFORE any <a-scene> is parsed,
+    and our components must be registered BEFORE the scene auto-inits.
+    We load them in <head> so they execute before the body is parsed.
+  -->
+  <script src="js/aframe.min.js"></script>
+  <script src="js/aframe-extras.min.js"></script>
 </head>
 <body>
 
@@ -104,52 +113,12 @@
   <section id="ar-screen" class="screen">
     <!-- Live camera feed -->
     <video id="camera-feed" autoplay playsinline muted></video>
+    
+    <!-- Hidden video element for WebGL texture — crossorigin BEFORE src is critical for CORS -->
+    <video id="hologramVideo" class="hidden-ar-element" crossorigin="anonymous" src="assets/video.mp4" loop muted playsinline></video>
 
-    <!-- Full-screen A-Frame container -->
-    <div id="overlay-container">
-      <a-scene 
-        embedded
-        transparent="true"
-        alpha="true"
-        vr-mode-ui="enabled: false"
-        device-orientation-permission-ui="enabled: false"
-        renderer="alpha: true; antialias: true; colorManagement: true;"
-        style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;">
-        <a-assets>
-          <a-asset-item id="robotModel" src="assets/robot.glb"></a-asset-item>
-          <!-- The video file to play in AR -->
-          <video id="hologramVideo" src="assets/video.mp4" autoplay loop muted playsinline crossorigin="anonymous"></video>
-        </a-assets>
-
-        <!-- The camera for the A-Frame scene -->
-        <a-entity camera position="0 0 0" look-controls="enabled: false"></a-entity>
-        
-        <!-- Lights -->
-        <a-light type="ambient" color="#ffffff" intensity="0.5"></a-light>
-        <a-light type="directional" color="#ffffff" intensity="0.8" position="-1 2 1"></a-light>
-
-        <!-- AR Video Plane (Plays like the YouTube video example) -->
-        <a-video 
-          id="ar-video-display"
-          src="#hologramVideo"
-          width="3.2" 
-          height="1.8"
-          position="0 0 -3">
-        </a-video>
-
-        <!-- Hologram Robot Entity (3D Model) (Hidden for now, as requested to show video) -->
-        <!--
-        <a-entity 
-          id="robot"
-          gltf-model="#robotModel"
-          position="0 0 -3"
-          scale="0.5 0.5 0.5"
-          animation-mixer="clip: Idle; loop: repeat;"
-          hologram-material>
-        </a-entity>
-        -->
-      </a-scene>
-    </div>
+    <!-- Full-screen A-Frame container — scene is created dynamically by script.js -->
+    <div id="overlay-container"></div>
 
     <!-- Minimal HUD -->
     <div id="ar-hud" class="ar-hud">
@@ -168,7 +137,15 @@
       </button>
     </div>
 
-    <!-- Chroma Key Tuner removed as we now use 3D models -->
+    <!-- Chroma Key Tuner -->
+    <div id="chroma-tuner" class="chroma-tuner">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <label class="tuner-label">Background Color</label>
+        <input type="color" id="chroma-color" value="#00d4ff" style="width: 30px; height: 24px; padding: 0; border: none; border-radius: 4px; cursor: pointer; background: transparent;">
+      </div>
+      <label class="tuner-label" style="margin-top: 8px;">Tolerance</label>
+      <input type="range" id="chroma-similarity" min="0" max="1" step="0.01" value="0.45">
+    </div>
 
     <!-- Instruction toast (auto-hides) -->
     <div id="ar-toast" class="ar-toast">
@@ -194,10 +171,11 @@
     </div>
   </div>
 
-
-  <!-- A-Frame and A-Frame Extras for GLTF Animations -->
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.0.0/dist/aframe-extras.min.js"></script>
-  <script src="script.js?v=1.0.4"></script>
+  <!--
+    IMPORTANT: script.js loads AFTER A-Frame (loaded in <head>).
+    It registers the hologram-video component, then creates the <a-scene>
+    dynamically so the component is guaranteed to be available.
+  -->
+  <script src="script.js?v=1.1.0"></script>
 </body>
 </html>

@@ -40,14 +40,35 @@ function getLocalIpAddress() {
 // Gzip / Brotli compression for all responses
 app.use(compression());
 
-// Security headers — relaxed CSP so inline styles, media, and camera work
+// JSON body parser for remote diagnostic logging
+app.use(express.json());
+
+// Remote client logger API
+app.post('/api/log', (req, res) => {
+  const { type, message } = req.body;
+  console.log(`[CLIENT ${type.toUpperCase()}] ${message}`);
+  res.sendStatus(200);
+});
+
+// Security headers — fully relaxed for AR camera + CDN + tunnel access
 app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
   })
 );
+
+// Explicit Permissions-Policy to allow camera usage
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=*, microphone=*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 
 // Serve local IP information for QR generator
 const fs = require('fs');

@@ -353,7 +353,7 @@ html, body {
    4. AR EXPERIENCE SCREEN
    ═══════════════════════════════════════════════════════════════ */
 #ar-screen {
-  background: #000;
+  background: #000 !important;
 }
 
 /* Camera feed fills the viewport */
@@ -376,6 +376,16 @@ html, body {
   touch-action: none;
   cursor: grab;
   display: block;
+  background: transparent !important;
+}
+
+/* Ensure A-Scene and A-Frame canvases are transparent */
+a-scene, 
+a-scene canvas, 
+.a-canvas, 
+.a-scene {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 #overlay-container:active {

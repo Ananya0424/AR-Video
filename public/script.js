@@ -4,6 +4,7 @@
  * Handles:
  *  • Loading → Welcome → AR screen transitions
  *  • Camera initialisation with rear-camera preference + fallback
+ *  • A-Frame scene creation with chromakey shader for transparent video overlay
  *  • Floating video overlay with one-finger drag & two-finger pinch
  *  • Comprehensive error handling with user-friendly messages
  *
@@ -13,88 +14,165 @@
 'use strict';
 
 /* ═══════════════════════════════════════════════════════════════
-   A-Frame Components & Shaders
+   Remote Diagnostic Logger
    ═══════════════════════════════════════════════════════════════ */
-if (typeof AFRAME !== 'undefined') {
-  AFRAME.registerComponent('hologram-material', {
-    init: function () {
-      this.el.addEventListener('model-loaded', () => {
-        const obj = this.el.getObject3D('mesh');
-        if (!obj) return;
-        obj.traverse((node) => {
-          if (node.isMesh) {
-            // Apply a blue transparent hologram material
-            node.material = new THREE.MeshStandardMaterial({
-              color: 0x4a90e2,
-              emissive: 0x2a60b2,
-              emissiveIntensity: 0.6,
-              transparent: true,
-              opacity: 0.85,
-              wireframe: false,
-              metalness: 0.6,
-              roughness: 0.2
-            });
-          }
-        });
-      });
-    }
-  });
-
-  // Custom shader to remove green/black background from videos
-  AFRAME.registerShader('chromakey', {
-    schema: {
-      src: { type: 'map' },
-      color: { type: 'color', is: 'uniform', default: '#00ff00' },
-      similarity: { type: 'number', is: 'uniform', default: 0.4 },
-      smoothness: { type: 'number', is: 'uniform', default: 0.12 }
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D src;
-      uniform vec3 color;
-      uniform float similarity;
-      uniform float smoothness;
-      varying vec2 vUv;
-      void main() {
-        vec4 texColor = texture2D(src, vUv);
-        // For black background use distance(texColor.rgb, vec3(0.0))
-        float diff = distance(texColor.rgb, color);
-        float alpha = smoothstep(similarity, similarity + smoothness, diff);
-        // Add subtle blue glow for hologram effect
-        vec3 finalColor = texColor.rgb + vec3(0.0, 0.2, 0.4);
-        gl_FragColor = vec4(finalColor, texColor.a * alpha);
-      }
-    `
-  });
+function sendRemoteLog(type, message) {
+  fetch('/api/log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, message })
+  }).catch(() => {});
 }
 
-// Global error logging for debugging on mobile devices
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+
+console.log = (...args) => {
+  originalLog.apply(console, args);
+  sendRemoteLog('log', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+};
+console.warn = (...args) => {
+  originalWarn.apply(console, args);
+  sendRemoteLog('warn', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+};
+console.error = (...args) => {
+  originalError.apply(console, args);
+  sendRemoteLog('error', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+};
+
+console.log('Remote logger initialized. User Agent: ' + navigator.userAgent);
+
+/* ═══════════════════════════════════════════════════════════════
+   A-Frame Component Registration
+   ═══════════════════════════════════════════════════════════════
+   CRITICAL: A-Frame is loaded in <head>, so AFRAME is guaranteed
+   to exist by the time this <body> script executes. We register
+   the hologram-video component HERE, before any <a-scene> is
+   created, so the component is available when the scene parses.
+   ═══════════════════════════════════════════════════════════════ */
+
+if (typeof AFRAME === 'undefined') {
+  console.error('FATAL: AFRAME is not defined. A-Frame script failed to load.');
+} else {
+  console.log('A-Frame loaded successfully, version:', AFRAME.version);
+
+  AFRAME.registerComponent('hologram-video', {
+    schema: {
+      src:        { type: 'selector' },
+      color:      { type: 'color', default: '#00d4ff' },
+      similarity: { type: 'number', default: 0.45 },
+      smoothness: { type: 'number', default: 0.15 }
+    },
+
+    init: function () {
+      const video = this.data.src;
+      if (!video) {
+        console.error('hologram-video: No video element found for selector');
+        return;
+      }
+
+      console.log('hologram-video: Initializing with video element', video.id);
+
+      // Create VideoTexture from the hidden <video> element
+      this.videoTexture = new THREE.VideoTexture(video);
+      this.videoTexture.minFilter = THREE.LinearFilter;
+      this.videoTexture.magFilter = THREE.LinearFilter;
+      this.videoTexture.format = THREE.RGBAFormat;
+      this.videoTexture.generateMipmaps = false;
+
+      // Chromakey Shader — removes the background color from the video
+      const vertexShader = `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `;
+
+      const fragmentShader = `
+        uniform sampler2D src;
+        uniform vec3 color;
+        uniform float similarity;
+        uniform float smoothness;
+        varying vec2 vUv;
+        void main() {
+          vec4 texColor = texture2D(src, vUv);
+          float diff = distance(texColor.rgb, color);
+          float alpha = smoothstep(similarity, similarity + smoothness, diff);
+          gl_FragColor = vec4(texColor.rgb, texColor.a * alpha);
+        }
+      `;
+
+      const keyColor = new THREE.Color(this.data.color);
+
+      this.material = new THREE.ShaderMaterial({
+        uniforms: {
+          src:        { value: this.videoTexture },
+          color:      { value: keyColor },
+          similarity: { value: this.data.similarity },
+          smoothness: { value: this.data.smoothness }
+        },
+        vertexShader,
+        fragmentShader,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+
+      // Create a 1×1 plane; scale is set dynamically below
+      const geometry = new THREE.PlaneGeometry(1, 1);
+      const mesh = new THREE.Mesh(geometry, this.material);
+      this.el.setObject3D('mesh', mesh);
+
+      console.log('hologram-video: Mesh created and added to entity');
+
+      // Scale entity to match video aspect ratio
+      const updateScale = () => {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (w && h) {
+          const aspect = w / h;
+          const targetHeight = 1.8;
+          const targetWidth = targetHeight * aspect;
+          this.el.setAttribute('scale', `${targetWidth} ${targetHeight} 1`);
+          console.log(`hologram-video: Scale set to ${targetWidth.toFixed(2)} x ${targetHeight} (video ${w}x${h})`);
+        }
+      };
+
+      if (video.readyState >= 1) {
+        updateScale();
+      } else {
+        video.addEventListener('loadedmetadata', updateScale, { once: true });
+      }
+    },
+
+    update: function () {
+      if (this.material && this.material.uniforms) {
+        this.material.uniforms.color.value = new THREE.Color(this.data.color);
+        this.material.uniforms.similarity.value = this.data.similarity;
+        this.material.uniforms.smoothness.value = this.data.smoothness;
+      }
+    },
+
+    tick: function () {
+      // Force the video texture to update every frame
+      if (this.videoTexture) {
+        this.videoTexture.needsUpdate = true;
+      }
+    }
+  });
+
+  console.log('hologram-video component registered successfully');
+}
+
+// Global error handlers
 window.addEventListener('error', (event) => {
   console.error('Global JS error:', event.error || event.message);
-  try {
-    if (typeof showError === 'function' && typeof screens !== 'undefined' && screens.error && !screens.error.classList.contains('active')) {
-      showError('generic', event.message + ' (Line: ' + event.lineno + ':' + event.colno + ')');
-    }
-  } catch (e) {
-    console.error('Failed to show error screen:', e);
-  }
 });
 
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled Promise Rejection:', event.reason);
-  try {
-    if (typeof showError === 'function' && typeof screens !== 'undefined' && screens.error && !screens.error.classList.contains('active')) {
-      showError('generic', String(event.reason?.message || event.reason));
-    }
-  } catch (e) {
-    console.error('Failed to show error screen:', e);
-  }
 });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -110,44 +188,42 @@ const screens = {
 };
 
 const els = {
-  progressFill:   $('progress-fill'),
-  startBtn:       $('start-btn'),
-  retryBtn:       $('retry-btn'),
-  errorTitle:     $('error-title'),
-  errorDesc:      $('error-desc'),
-  errorSteps:     $('error-steps'),
-  cameraFeed:     $('camera-feed'),
+  progressFill:     $('progress-fill'),
+  startBtn:         $('start-btn'),
+  retryBtn:         $('retry-btn'),
+  errorTitle:       $('error-title'),
+  errorDesc:        $('error-desc'),
+  errorSteps:       $('error-steps'),
+  cameraFeed:       $('camera-feed'),
   overlayContainer: $('overlay-container'),
-  overlayVideo:   $('overlay-video'),
-  overlayPlaceholder: $('overlay-placeholder'),
-  closeBtn:       $('close-btn'),
-  switchCamBtn:   $('switch-cam-btn'),
-  arHud:          $('ar-hud'),
-  arToast:        $('ar-toast'),
-  desktopQrCard:  $('desktop-qr-card'),
-  closeQrBtn:     $('close-qr-btn'),
-  qrImage:        $('qr-image'),
-  qrUrlText:      $('qr-url-text'),
+  hologramVideo:    $('hologramVideo'),       // FIXED: was 'overlay-video' which doesn't exist
+  closeBtn:         $('close-btn'),
+  switchCamBtn:     $('switch-cam-btn'),
+  arHud:            $('ar-hud'),
+  arToast:          $('ar-toast'),
+  desktopQrCard:    $('desktop-qr-card'),
+  closeQrBtn:       $('close-qr-btn'),
+  qrImage:          $('qr-image'),
+  qrUrlText:        $('qr-url-text'),
   chromaSimilarity: $('chroma-similarity'),
-  chromaTuner:    $('chroma-tuner'),
+  chromaColor:      $('chroma-color'),
+  chromaTuner:      $('chroma-tuner'),
 };
 
 /* ═══════════════════════════════════════════════════════════════
    State
    ═══════════════════════════════════════════════════════════════ */
 let cameraStream = null;
-let facingMode   = 'environment'; // preferred: rear camera
+let facingMode   = 'environment';
 let hudTimeout   = null;
 let toastTimeout = null;
+let isARMode     = false;
+let hologramEntity = null;
+let aframeSceneCreated = false;
 
 /* ═══════════════════════════════════════════════════════════════
    Screen Manager
    ═══════════════════════════════════════════════════════════════ */
-
-/**
- * Transition to a target screen with a smooth cross-fade.
- * @param {'loading'|'welcome'|'error'|'ar'} name
- */
 function showScreen(name) {
   Object.values(screens).forEach((s) => s.classList.remove('active'));
   screens[name].classList.add('active');
@@ -158,39 +234,29 @@ function showScreen(name) {
    ═══════════════════════════════════════════════════════════════ */
 function runLoadingSequence() {
   let progress = 0;
-  
-  // Initialize QR utility if on desktop
   initDesktopQR();
 
-  const video = els.overlayVideo;
-  if (video) {
-    video.load(); // Start preloading the video asset
-  }
-
-  // Track if video metadata is ready
+  // Preload the hologram video
+  const video = els.hologramVideo;
   let videoReady = false;
-  const onVideoReady = () => {
-    videoReady = true;
-  };
 
   if (video) {
+    video.load();
     if (video.readyState >= 1) {
       videoReady = true;
     } else {
-      video.addEventListener('loadedmetadata', onVideoReady, { once: true });
-      video.addEventListener('canplaythrough', onVideoReady, { once: true });
+      const onReady = () => { videoReady = true; };
+      video.addEventListener('loadedmetadata', onReady, { once: true });
+      video.addEventListener('canplaythrough', onReady, { once: true });
     }
   } else {
     videoReady = true;
   }
 
-  // Safety fallback: continue after 5 seconds even if video metadata hasn't loaded
-  setTimeout(() => {
-    videoReady = true;
-  }, 5000);
+  // Safety fallback
+  setTimeout(() => { videoReady = true; }, 5000);
 
   const tick = () => {
-    // Hold progress at 90% if video is not ready yet
     if (progress < 90) {
       progress += Math.random() * 12 + 4;
       if (progress >= 90) progress = 90;
@@ -203,29 +269,19 @@ function runLoadingSequence() {
     if (progress < 100) {
       setTimeout(tick, 80);
     } else {
-      if (video) {
-        video.removeEventListener('loadedmetadata', onVideoReady);
-        video.removeEventListener('canplaythrough', onVideoReady);
-      }
-      // Brief pause then transition
       setTimeout(() => showScreen('welcome'), 350);
     }
   };
   tick();
 }
 
-/**
- * Detects if the current viewport is desktop and renders a QR code
- * pointing to the current application page.
- */
 async function initDesktopQR() {
   const isDesktop = window.innerWidth > 768;
   if (!isDesktop || !els.desktopQrCard) return;
 
   let testUrl = window.location.href;
-
-  // If testing on localhost/127.0.0.1, ask server for local network IP
   const hostname = window.location.hostname;
+
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     try {
       const res = await fetch('/api/info');
@@ -234,15 +290,13 @@ async function initDesktopQR() {
         testUrl = info.url;
       }
     } catch (err) {
-      console.warn('Could not fetch server local IP, fallback to window.location', err);
+      console.warn('Could not fetch server local IP', err);
     }
   }
 
   els.qrUrlText.textContent = testUrl;
 
-  // Generate QR code using Google/public QR server API
   const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(testUrl)}&color=0a0a1a&bgcolor=ffffff&margin=10`;
-  
   els.qrImage.src = qrApiUrl;
   els.qrImage.onload = () => {
     const spinner = els.desktopQrCard.querySelector('.qr-loading-spinner');
@@ -254,17 +308,9 @@ async function initDesktopQR() {
   });
 }
 
-
-
 /* ═══════════════════════════════════════════════════════════════
    2. Error Display
    ═══════════════════════════════════════════════════════════════ */
-
-/**
- * Show the error screen with contextual messaging.
- * @param {'permission'|'no-camera'|'incompatible'|'autoplay'|'init'|'generic'} type
- * @param {string} [detail] — optional extra info
- */
 function showError(type, detail) {
   const cfg = {
     permission: {
@@ -323,7 +369,6 @@ function showError(type, detail) {
   els.errorTitle.textContent = c.title;
   els.errorDesc.textContent  = c.desc;
 
-  // Build step list
   if (c.steps && c.steps.length) {
     els.errorSteps.innerHTML = `<ol>${c.steps.map((s) => `<li>${s}</li>`).join('')}</ol>`;
   } else {
@@ -336,10 +381,6 @@ function showError(type, detail) {
 /* ═══════════════════════════════════════════════════════════════
    3. Camera
    ═══════════════════════════════════════════════════════════════ */
-
-/**
- * Stop all tracks on the current stream.
- */
 function stopCamera() {
   if (cameraStream) {
     cameraStream.getTracks().forEach((t) => t.stop());
@@ -348,18 +389,12 @@ function stopCamera() {
   els.cameraFeed.srcObject = null;
 }
 
-/**
- * Start the camera with the current `facingMode`.
- * Falls back to any available camera if the preferred mode fails.
- */
 async function startCamera() {
-  // Feature detection
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showError('incompatible');
     return false;
   }
 
-  // Preferred constraints — rear camera
   const preferred = {
     video: {
       facingMode: { ideal: facingMode },
@@ -369,11 +404,7 @@ async function startCamera() {
     audio: false,
   };
 
-  // Fallback constraints — any camera
-  const fallback = {
-    video: true,
-    audio: false,
-  };
+  const fallback = { video: true, audio: false };
 
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia(preferred);
@@ -386,7 +417,6 @@ async function startCamera() {
       showError('no-camera');
       return false;
     }
-    // Try fallback
     try {
       cameraStream = await navigator.mediaDevices.getUserMedia(fallback);
     } catch (err2) {
@@ -401,158 +431,230 @@ async function startCamera() {
     }
   }
 
-  // Set up promise to wait for metadata & play without hanging
+  // Attach stream and wait for it to play
   await new Promise((resolve) => {
     let resolved = false;
     const done = () => {
       if (!resolved) {
         resolved = true;
-        els.cameraFeed.onloadedmetadata = null;
-        els.cameraFeed.onplaying = null;
         resolve();
       }
     };
 
-    // If metadata is already loaded
-    if (els.cameraFeed.readyState >= 1) {
+    els.cameraFeed.onloadedmetadata = () => {
       els.cameraFeed.play().then(done).catch((e) => {
         console.warn('cameraFeed play failed:', e);
         done();
       });
-    }
-
-    els.cameraFeed.onloadedmetadata = () => {
-      els.cameraFeed.play().then(done).catch((e) => {
-        console.warn('cameraFeed play failed in event:', e);
-        done();
-      });
     };
-
-    // Also listen to playing event
     els.cameraFeed.onplaying = done;
 
-    // Safety timeout: 3 seconds
+    // Safety timeout
     setTimeout(() => {
       console.warn('Camera metadata timeout, forcing start');
       els.cameraFeed.play().then(done).catch(done);
     }, 3000);
 
-    // Set srcObject to start loading
     els.cameraFeed.srcObject = cameraStream;
   });
 
+  console.log('Camera started successfully');
   return true;
 }
 
-/**
- * Toggle between front and rear cameras.
- */
 async function switchCamera() {
   facingMode = facingMode === 'environment' ? 'user' : 'environment';
   stopCamera();
   const ok = await startCamera();
   if (!ok) {
-    // Revert and try original
     facingMode = facingMode === 'environment' ? 'user' : 'environment';
     await startCamera();
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   4. A-Frame AR Logic & Touch Gestures
+   4. A-Frame Scene Creation (Dynamic)
+   ═══════════════════════════════════════════════════════════════
+   We create the <a-scene> DYNAMICALLY so that:
+   1. The hologram-video component is guaranteed to be registered first
+   2. We can set all attributes properly
+   3. The scene doesn't auto-init before everything is ready
    ═══════════════════════════════════════════════════════════════ */
 
-let isARMode = false;
-let robotEntity = null;
+function createAFrameScene() {
+  if (aframeSceneCreated) return;
+  aframeSceneCreated = true;
 
-function initAFrameAR() {
-  robotEntity = $('robot');
-  
-  // Touch Gestures for A-Frame Entity
+  console.log('Creating A-Frame scene dynamically...');
+
+  const container = els.overlayContainer;
+
+  // Build the scene HTML
+  // CRITICAL: look-controls with magicWindowTrackingEnabled uses gyroscope/accelerometer
+  // to rotate the 3D camera as the user moves their phone. This makes the video
+  // stay anchored in world space (true AR). touchEnabled/mouseEnabled are disabled
+  // so those inputs go to our custom drag/pinch gesture handlers instead.
+  container.innerHTML = `
+    <a-scene
+      embedded
+      vr-mode-ui="enabled: false"
+      device-orientation-permission-ui="enabled: false"
+      renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true"
+      background="transparent: true"
+      style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;">
+
+      <a-entity
+        camera
+        position="0 0 0"
+        look-controls="magicWindowTrackingEnabled: true; touchEnabled: false; mouseEnabled: false"
+        wasd-controls="enabled: false">
+      </a-entity>
+
+      <a-light type="ambient" color="#ffffff" intensity="0.8"></a-light>
+
+      <a-entity
+        id="hologram-plane"
+        hologram-video="src: #hologramVideo; color: #00d4ff; similarity: 0.45; smoothness: 0.15"
+        position="0 0 -2"
+        scale="1.6 0.9 1">
+      </a-entity>
+    </a-scene>
+  `;
+
+  console.log('A-Frame scene HTML injected with look-controls enabled');
+
+  // Wait for scene to load, then verify
+  const sceneEl = container.querySelector('a-scene');
+  if (sceneEl) {
+    const onSceneLoaded = () => {
+      console.log('A-Frame scene fully loaded');
+
+      // Force the renderer to have transparent clear color
+      if (sceneEl.renderer) {
+        sceneEl.renderer.setClearColor(0x000000, 0);
+        console.log('Renderer clear color set to transparent (alpha=0)');
+      }
+
+      hologramEntity = document.getElementById('hologram-plane');
+      if (hologramEntity) {
+        console.log('hologram-plane entity found in world space');
+      } else {
+        console.error('hologram-plane entity NOT found after scene load');
+      }
+
+      // Verify look-controls are active
+      const cam = sceneEl.querySelector('[camera]');
+      if (cam) {
+        const lc = cam.getAttribute('look-controls');
+        console.log('look-controls config:', JSON.stringify(lc));
+      }
+
+      setupGestures();
+      setupChromaTuner();
+    };
+
+    if (sceneEl.hasLoaded) {
+      onSceneLoaded();
+    } else {
+      sceneEl.addEventListener('loaded', onSceneLoaded);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   5. Touch Gestures (Drag & Pinch)
+   ═══════════════════════════════════════════════════════════════ */
+
+function setupGestures() {
   const container = els.overlayContainer;
   let startX, startY;
   let startDist = 0;
   let isDragging = false;
-  let initialPosition = { x: 0, y: 0, z: -3 };
-  let initialScale = { x: 0.5, y: 0.5, z: 0.5 };
-  
-  // Wait for A-Frame scene to be fully loaded
-  const sceneEl = document.querySelector('a-scene');
-  if (sceneEl && sceneEl.hasLoaded) {
-    setupGestures();
-  } else if (sceneEl) {
-    sceneEl.addEventListener('loaded', setupGestures);
-  }
+  let initialPosition = { x: 0, y: 0, z: -2 };
+  let initialScale = { x: 1.6, y: 0.9, z: 1 };
 
-  function setupGestures() {
-    container.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      if (!robotEntity) return;
+  container.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (!hologramEntity) return;
 
-      if (e.touches.length === 1) {
-        isDragging = true;
+    if (e.touches.length === 1) {
+      isDragging = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      const pos = hologramEntity.getAttribute('position');
+      initialPosition = { x: pos.x, y: pos.y, z: pos.z };
+    } else if (e.touches.length === 2) {
+      isDragging = false;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      startDist = Math.hypot(dx, dy);
+      const scl = hologramEntity.getAttribute('scale');
+      initialScale = { x: scl.x, y: scl.y, z: scl.z };
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!hologramEntity) return;
+
+    if (e.touches.length === 1 && isDragging) {
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      hologramEntity.setAttribute('position', {
+        x: initialPosition.x + (dx * 0.01),
+        y: initialPosition.y - (dy * 0.01),
+        z: initialPosition.z
+      });
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+
+      if (startDist > 0) {
+        const scaleFactor = dist / startDist;
+        const newScaleX = Math.max(0.5, Math.min(10.0, initialScale.x * scaleFactor));
+        const newScaleY = Math.max(0.5, Math.min(10.0, initialScale.y * scaleFactor));
+        hologramEntity.setAttribute('scale', { x: newScaleX, y: newScaleY, z: 1 });
+      }
+    }
+  }, { passive: false });
+
+  container.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) {
+      isDragging = e.touches.length === 1;
+      if (isDragging) {
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
-        const pos = robotEntity.getAttribute('position');
+        const pos = hologramEntity.getAttribute('position');
         initialPosition = { x: pos.x, y: pos.y, z: pos.z };
-      } else if (e.touches.length === 2) {
-        isDragging = false;
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        startDist = Math.hypot(dx, dy);
-        const scl = robotEntity.getAttribute('scale');
-        initialScale = { x: scl.x, y: scl.y, z: scl.z };
       }
-    }, { passive: false });
+    }
+  });
 
-    container.addEventListener('touchmove', (e) => {
-      e.preventDefault();
-      if (!robotEntity) return;
+  console.log('Touch gestures initialized');
+}
 
-      if (e.touches.length === 1 && isDragging) {
-        const dx = e.touches[0].clientX - startX;
-        const dy = e.touches[0].clientY - startY;
-        
-        // Translate model in 3D space. Adjust sensitivity as needed.
-        robotEntity.setAttribute('position', {
-          x: initialPosition.x + (dx * 0.01),
-          y: initialPosition.y - (dy * 0.01),
-          z: initialPosition.z
-        });
-      } else if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.hypot(dx, dy);
+/* ═══════════════════════════════════════════════════════════════
+   6. Chroma Tuner
+   ═══════════════════════════════════════════════════════════════ */
+function setupChromaTuner() {
+  const tuner = els.chromaSimilarity;
+  const colorPicker = els.chromaColor;
 
-        if (startDist > 0) {
-          const scaleFactor = dist / startDist;
-          // Clamp scale to reasonable bounds
-          const newScale = Math.max(0.1, Math.min(3.0, initialScale.x * scaleFactor));
-          robotEntity.setAttribute('scale', {
-            x: newScale,
-            y: newScale,
-            z: newScale
-          });
-        }
-      }
-    }, { passive: false });
-
-    container.addEventListener('touchend', (e) => {
-      if (e.touches.length < 2) {
-        isDragging = e.touches.length === 1;
-        if (isDragging) {
-          startX = e.touches[0].clientX;
-          startY = e.touches[0].clientY;
-          const pos = robotEntity.getAttribute('position');
-          initialPosition = { x: pos.x, y: pos.y, z: pos.z };
-        }
-      }
+  if (tuner && hologramEntity) {
+    tuner.addEventListener('input', (e) => {
+      hologramEntity.setAttribute('hologram-video', 'similarity', e.target.value);
+    });
+  }
+  if (colorPicker && hologramEntity) {
+    colorPicker.addEventListener('input', (e) => {
+      hologramEntity.setAttribute('hologram-video', 'color', e.target.value);
     });
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   5. HUD Auto-hide
+   7. HUD Auto-hide
    ═══════════════════════════════════════════════════════════════ */
 function initHudAutoHide() {
   const show = () => {
@@ -566,52 +668,84 @@ function initHudAutoHide() {
   hudTimeout = setTimeout(() => els.arHud.classList.add('hidden'), 4000);
 }
 
-/**
- * Transitions from the welcome screen to the AR experience.
- */
-function enterARMode() {
-  els.welcomeScreen.classList.remove('active');
-  els.arScreen.classList.add('active');
-  
-  // Show toast instruction
-  els.arToast.classList.add('show');
-  setTimeout(() => els.arToast.classList.remove('show'), 4000);
-
-  // Attempt to play the AR video if it exists (requires user interaction first)
-  const video = document.getElementById('hologramVideo');
-  if (video) {
-    video.play().catch(e => console.warn('Autoplay prevented:', e));
-  }
-}
-
 function showToast() {
-  els.arToast.classList.remove('hidden');
+  els.arToast.classList.add('show');
   clearTimeout(toastTimeout);
-  toastTimeout = setTimeout(() => els.arToast.classList.add('hidden'), 4000);
+  toastTimeout = setTimeout(() => els.arToast.classList.remove('show'), 4000);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   6. Unified Entry Point: A-Frame WebAR Launch
+   8. Unified Entry Point: Launch AR
    ═══════════════════════════════════════════════════════════════ */
 async function launchAR() {
   els.startBtn.disabled = true;
   els.startBtn.textContent = 'Starting…';
 
+  console.log('launchAR: Starting AR experience...');
+
+  // 1. Request DeviceOrientation permission (iOS 13+ requires explicit permission)
+  // Must be called from a user gesture handler (click)
   try {
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+      console.log('launchAR: Requesting DeviceOrientation permission (iOS)...');
+      const permission = await DeviceOrientationEvent.requestPermission();
+      if (permission !== 'granted') {
+        console.warn('launchAR: DeviceOrientation permission denied');
+        showError('generic', 'Motion sensor permission is required for AR. Please allow motion access and try again.');
+        resetStartBtn();
+        return;
+      }
+      console.log('launchAR: DeviceOrientation permission granted');
+    }
+  } catch (e) {
+    console.warn('launchAR: DeviceOrientation permission request failed:', e);
+    // Continue anyway — non-iOS devices don't need this
+  }
+
+  // 2. Switch to AR screen immediately (user gesture context)
+  isARMode = true;
+  showScreen('ar');
+
+  // 3. Play hologram video immediately (requires user gesture context)
+  const video = els.hologramVideo;
+  if (video) {
+    try {
+      await video.play();
+      console.log('launchAR: Hologram video playing');
+    } catch (e) {
+      console.warn('launchAR: Video autoplay failed, will retry:', e);
+    }
+  }
+
+  try {
+    // 4. Start camera
     const cameraOk = await startCamera();
     if (!cameraOk) {
+      isARMode = false;
+      showScreen('welcome');
       resetStartBtn();
       return;
     }
 
-    isARMode = true;
-    showScreen('ar');
-    initAFrameAR();
+    // 5. Create A-Frame scene dynamically (component is already registered)
+    createAFrameScene();
+
+    // 6. Initialize HUD and toast
     initHudAutoHide();
     showToast();
 
+    // 7. Ensure video is playing (retry after camera init)
+    if (video && video.paused) {
+      video.play().catch(e => console.warn('AR video retry play failed:', e));
+    }
+
+    console.log('launchAR: AR experience fully initialized — video is world-anchored');
+
   } catch (err) {
     console.error('AR Launch failed:', err);
+    isARMode = false;
+    showScreen('welcome');
     showError('generic', err.message);
   } finally {
     resetStartBtn();
@@ -630,7 +764,31 @@ function resetStartBtn() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   7. Event Bindings
+   9. Cleanup on Close
+   ═══════════════════════════════════════════════════════════════ */
+function closeAR() {
+  isARMode = false;
+  stopCamera();
+
+  // Pause hologram video
+  const video = els.hologramVideo;
+  if (video) {
+    video.pause();
+  }
+
+  // Destroy A-Frame scene to free resources
+  const sceneEl = els.overlayContainer.querySelector('a-scene');
+  if (sceneEl) {
+    sceneEl.parentNode.removeChild(sceneEl);
+  }
+  aframeSceneCreated = false;
+  hologramEntity = null;
+
+  showScreen('welcome');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   10. Event Bindings
    ═══════════════════════════════════════════════════════════════ */
 els.startBtn.addEventListener('click', launchAR);
 
@@ -639,11 +797,7 @@ els.retryBtn.addEventListener('click', () => {
   showScreen('welcome');
 });
 
-els.closeBtn.addEventListener('click', () => {
-  isARMode = false;
-  stopCamera();
-  showScreen('welcome');
-});
+els.closeBtn.addEventListener('click', closeAR);
 
 els.switchCamBtn.addEventListener('click', switchCamera);
 
@@ -654,6 +808,11 @@ document.addEventListener('visibilitychange', () => {
     cameraStream.getTracks().forEach((t) => (t.enabled = false));
   } else {
     cameraStream.getTracks().forEach((t) => (t.enabled = true));
+    // Resume video playback
+    const video = els.hologramVideo;
+    if (video && video.paused && isARMode) {
+      video.play().catch(() => {});
+    }
   }
 });
 
@@ -664,12 +823,21 @@ document.addEventListener('touchmove', (e) => {
   }
 }, { passive: false });
 
+// Tap anywhere on AR screen to play video if blocked
+document.addEventListener('click', () => {
+  if (isARMode) {
+    const video = els.hologramVideo;
+    if (video && video.paused) {
+      video.play().catch(() => {});
+    }
+  }
+});
+
 /* ═══════════════════════════════════════════════════════════════
-   8. Boot
+   11. Boot
    ═══════════════════════════════════════════════════════════════ */
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', runLoadingSequence);
 } else {
   runLoadingSequence();
 }
-
