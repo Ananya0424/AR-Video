@@ -199,6 +199,7 @@ const els = {
   hologramVideo:    $('hologramVideo'),       // FIXED: was 'overlay-video' which doesn't exist
   closeBtn:         $('close-btn'),
   switchCamBtn:     $('switch-cam-btn'),
+  resetPosBtn:      $('reset-pos-btn'),
   arHud:            $('ar-hud'),
   arToast:          $('ar-toast'),
   desktopQrCard:    $('desktop-qr-card'),
@@ -220,6 +221,8 @@ let toastTimeout = null;
 let isARMode     = false;
 let hologramEntity = null;
 let aframeSceneCreated = false;
+let isVideoLocked = false;
+let hasMoved     = false;
 
 /* ═══════════════════════════════════════════════════════════════
    Screen Manager
@@ -501,6 +504,8 @@ function createAFrameScene() {
       device-orientation-permission-ui="enabled: false"
       renderer="alpha: true; antialias: true; colorManagement: true; sortObjects: true"
       background="transparent: true"
+      cursor="rayOrigin: mouse"
+      raycaster="objects: .raycastable"
       style="width: 100%; height: 100%; position: absolute; top: 0; left: 0;">
 
       <a-entity
@@ -514,6 +519,7 @@ function createAFrameScene() {
 
       <a-entity
         id="hologram-plane"
+        class="raycastable"
         hologram-video="src: #hologramVideo; color: #00d4ff; similarity: 0.45; smoothness: 0.15"
         position="0 0 -2"
         scale="1.6 0.9 1">
@@ -538,6 +544,15 @@ function createAFrameScene() {
       hologramEntity = document.getElementById('hologram-plane');
       if (hologramEntity) {
         console.log('hologram-plane entity found in world space');
+        
+        // Tap to lock/unlock video position
+        hologramEntity.addEventListener('click', () => {
+          if (hasMoved) {
+            console.log('Click ignored because touch moved (drag/pinch)');
+            return;
+          }
+          toggleVideoLock();
+        });
       } else {
         console.error('hologram-plane entity NOT found after scene load');
       }
@@ -577,6 +592,8 @@ function setupGestures() {
     e.preventDefault();
     if (!hologramEntity) return;
 
+    hasMoved = false; // Reset on touch start
+
     if (e.touches.length === 1) {
       isDragging = true;
       startX = e.touches[0].clientX;
@@ -597,18 +614,30 @@ function setupGestures() {
     e.preventDefault();
     if (!hologramEntity) return;
 
+    // Check if touch moved significantly to avoid accidental drag status on simple tap
+    let moveThreshold = 8;
+    let dx = 0, dy = 0;
+    if (e.touches.length === 1) {
+      dx = e.touches[0].clientX - startX;
+      dy = e.touches[0].clientY - startY;
+    }
+    if (Math.hypot(dx, dy) > moveThreshold || e.touches.length === 2) {
+      hasMoved = true;
+    }
+
+    // If position is locked, prevent drag and pinch scaling!
+    if (isVideoLocked) return;
+
     if (e.touches.length === 1 && isDragging) {
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
       hologramEntity.setAttribute('position', {
         x: initialPosition.x + (dx * 0.01),
         y: initialPosition.y - (dy * 0.01),
         z: initialPosition.z
       });
     } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.hypot(dx, dy);
+      const dx2 = e.touches[0].clientX - e.touches[1].clientX;
+      const dy2 = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx2, dy2);
 
       if (startDist > 0) {
         const scaleFactor = dist / startDist;
@@ -668,7 +697,12 @@ function initHudAutoHide() {
   hudTimeout = setTimeout(() => els.arHud.classList.add('hidden'), 4000);
 }
 
-function showToast() {
+function showToast(message) {
+  if (message) {
+    els.arToast.innerHTML = message;
+  } else {
+    els.arToast.innerHTML = 'Drag to move&nbsp;&bull;&nbsp;Pinch to resize';
+  }
   els.arToast.classList.add('show');
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => els.arToast.classList.remove('show'), 4000);
@@ -763,6 +797,43 @@ function resetStartBtn() {
     Start AR Experience`;
 }
 
+function toggleVideoLock() {
+  isVideoLocked = !isVideoLocked;
+  console.log('toggleVideoLock: Locked state is now', isVideoLocked);
+  
+  if (isVideoLocked) {
+    showToast('🔒 Video Position Locked. Tap Reset to unlock.');
+  } else {
+    showToast('🔓 Video Position Unlocked. Drag to move.');
+  }
+}
+
+function resetVideoPosition() {
+  if (!hologramEntity) return;
+  
+  isVideoLocked = false;
+  
+  // Reset position to default z=-2
+  hologramEntity.setAttribute('position', { x: 0, y: 0, z: -2 });
+  
+  // Reset scale to default or aspect-ratio scale
+  const video = els.hologramVideo;
+  if (video) {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (w && h) {
+      const aspect = w / h;
+      const targetHeight = 1.8;
+      const targetWidth = targetHeight * aspect;
+      hologramEntity.setAttribute('scale', { x: targetWidth, y: targetHeight, z: 1 });
+    } else {
+      hologramEntity.setAttribute('scale', { x: 1.6, y: 0.9, z: 1 });
+    }
+  }
+  
+  showToast('🔄 Position Reset. Drag to move & Pinch to resize.');
+}
+
 /* ═══════════════════════════════════════════════════════════════
    9. Cleanup on Close
    ═══════════════════════════════════════════════════════════════ */
@@ -783,6 +854,7 @@ function closeAR() {
   }
   aframeSceneCreated = false;
   hologramEntity = null;
+  isVideoLocked = false; // Reset lock state
 
   showScreen('welcome');
 }
@@ -800,6 +872,13 @@ els.retryBtn.addEventListener('click', () => {
 els.closeBtn.addEventListener('click', closeAR);
 
 els.switchCamBtn.addEventListener('click', switchCamera);
+
+if (els.resetPosBtn) {
+  els.resetPosBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetVideoPosition();
+  });
+}
 
 // Handle visibility change — pause/resume camera
 document.addEventListener('visibilitychange', () => {
