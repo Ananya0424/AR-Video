@@ -14,8 +14,10 @@
 'use strict';
 
 /* ═══════════════════════════════════════════════════════════════
-   Remote Diagnostic Logger
+   Remote Diagnostic Logger & On-screen Debugger
    ═══════════════════════════════════════════════════════════════ */
+const isDebugMode = window.location.search.includes('debug=true');
+
 function sendRemoteLog(type, message) {
   fetch('/api/log', {
     method: 'POST',
@@ -24,21 +26,47 @@ function sendRemoteLog(type, message) {
   }).catch(() => {});
 }
 
+function logToScreen(type, message) {
+  if (!isDebugMode) return;
+  const consoleEl = document.getElementById('debug-console');
+  const listEl = document.getElementById('debug-log-list');
+  if (consoleEl && listEl) {
+    consoleEl.style.display = 'block';
+    const item = document.createElement('div');
+    let color = '#00ff00';
+    if (type === 'warn') color = '#ffaa00';
+    if (type === 'error') color = '#ff3333';
+    item.style.color = color;
+    item.style.marginBottom = '2px';
+    item.style.borderBottom = '1px dashed rgba(0, 255, 0, 0.1)';
+    item.style.paddingBottom = '2px';
+    item.textContent = `[${type.toUpperCase()}] ${message}`;
+    listEl.appendChild(item);
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+}
+
 const originalLog = console.log;
 const originalWarn = console.warn;
 const originalError = console.error;
 
 console.log = (...args) => {
   originalLog.apply(console, args);
-  sendRemoteLog('log', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  sendRemoteLog('log', msg);
+  logToScreen('log', msg);
 };
 console.warn = (...args) => {
   originalWarn.apply(console, args);
-  sendRemoteLog('warn', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  sendRemoteLog('warn', msg);
+  logToScreen('warn', msg);
 };
 console.error = (...args) => {
   originalError.apply(console, args);
-  sendRemoteLog('error', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  sendRemoteLog('error', msg);
+  logToScreen('error', msg);
 };
 
 console.log('Remote logger initialized. User Agent: ' + navigator.userAgent);
@@ -235,29 +263,51 @@ function showScreen(name) {
 /* ═══════════════════════════════════════════════════════════════
    1. Loading Flow & Desktop QR Generation
    ═══════════════════════════════════════════════════════════════ */
-function runLoadingSequence() {
+async function runLoadingSequence() {
   let progress = 0;
   initDesktopQR();
 
-  // Preload the hologram video
   const video = els.hologramVideo;
   let videoReady = false;
 
+  // Fetch the video file as a Blob for CORS & local WebGL texture loading robustness (especially Safari/iOS)
   if (video) {
-    video.load();
-    if (video.readyState >= 1) {
+    console.log('runLoadingSequence: Pre-fetching video as Blob for iOS/CORS compatibility...');
+    try {
+      const response = await fetch('assets/video.mp4');
+      if (!response.ok) throw new Error(`HTTP status ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      video.removeAttribute('crossorigin'); // Not needed for Blob URLs
+      video.src = blobUrl;
+      video.load();
       videoReady = true;
-    } else {
-      const onReady = () => { videoReady = true; };
-      video.addEventListener('loadedmetadata', onReady, { once: true });
-      video.addEventListener('canplaythrough', onReady, { once: true });
+      console.log('runLoadingSequence: Video loaded as Blob URL successfully');
+    } catch (err) {
+      console.error('runLoadingSequence: Blob pre-fetch failed, falling back to direct URL:', err);
+      video.src = 'assets/video.mp4';
+      video.load();
+      // Use fallback event listeners
+      if (video.readyState >= 1) {
+        videoReady = true;
+      } else {
+        const onReady = () => { videoReady = true; };
+        video.addEventListener('loadedmetadata', onReady, { once: true });
+        video.addEventListener('canplaythrough', onReady, { once: true });
+      }
     }
   } else {
     videoReady = true;
   }
 
-  // Safety fallback
-  setTimeout(() => { videoReady = true; }, 5000);
+  // Safety fallback for loading screen transition
+  setTimeout(() => { 
+    if (!videoReady) {
+      console.warn('runLoadingSequence: Video loading timed out, forcing safety fallback');
+      videoReady = true; 
+    }
+  }, 10000);
 
   const tick = () => {
     if (progress < 90) {

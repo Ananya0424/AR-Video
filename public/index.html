@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="styles.css?v=1.3.0" />
+  <link rel="stylesheet" href="styles.css?v=1.4.0" />
 
   <!--
     CRITICAL: Load A-Frame FIRST, then extras, then our script.
@@ -180,11 +180,15 @@
     </div>
   </div>
 
-  <!--
-    IMPORTANT: script.js loads AFTER A-Frame (loaded in <head>).
-    It registers the hologram-video component, then creates the <a-scene>
-    dynamically so the component is guaranteed to be available.
-  -->
-  <script src="script.js?v=1.3.0"></script>
+  <!-- Floating debug console for mobile logging (active only if ?debug=true in URL) -->
+  <div id="debug-console" style="display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 180px; background: rgba(0, 0, 0, 0.9); color: #00ff00; font-family: monospace; font-size: 11px; overflow-y: auto; padding: 8px; z-index: 99999; border-top: 2px solid #00ff00; pointer-events: auto; box-sizing: border-box;">
+    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #00ff00; padding-bottom: 4px; margin-bottom: 6px; font-weight: bold; font-size: 12px;">
+      <span>AR Debug Console (?debug=true)</span>
+      <button onclick="document.getElementById('debug-log-list').innerHTML='';" style="background: none; border: none; color: #ff3333; cursor: pointer; font-size: 11px; font-family: monospace; padding: 0 4px;">[Clear]</button>
+    </div>
+    <div id="debug-log-list"></div>
+  </div>
+
+  <script src="script.js?v=1.4.0"></script>
 </body>
 </html>
