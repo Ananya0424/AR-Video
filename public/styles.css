@@ -748,12 +748,12 @@ a-scene canvas,
 /* Visually hidden but active in DOM (keeps video decoding running for WebGL) */
 .hidden-ar-element {
   position: absolute !important;
-  left: -9999px !important;
-  top: -9999px !important;
-  width: 270px !important;
-  height: 480px !important;
-  opacity: 0.01 !important;
+  left: 0 !important;
+  top: 0 !important;
+  width: 16px !important;
+  height: 16px !important;
+  opacity: 0.0001 !important;
   pointer-events: none !important;
-  overflow: hidden !important;
+  z-index: -100 !important;
 }
 

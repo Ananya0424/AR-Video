@@ -589,7 +589,12 @@ function setupGestures() {
   let initialScale = { x: 1.6, y: 0.9, z: 1 };
 
   container.addEventListener('touchstart', (e) => {
-    e.preventDefault();
+    // Play video on user touch gesture in case autoplay is blocked (e.g. iOS Low Power Mode)
+    const video = els.hologramVideo;
+    if (video && video.paused && isARMode) {
+      video.play().catch((err) => console.log('Touchstart play failed:', err));
+    }
+
     if (!hologramEntity) return;
 
     hasMoved = false; // Reset on touch start
