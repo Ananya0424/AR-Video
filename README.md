@@ -1,161 +1,132 @@
-# QR AR Video Experience
+# 📱 WebAR Campaign Manager & Floating Video Experience
 
-A browser-based augmented-reality-style floating video overlay triggered by scanning a QR code. No native app required — works entirely in the mobile browser over HTTPS.
+An interactive, browser-based WebAR (Web Augmented Reality) application that triggers a premium, floating video overlay upon scanning a QR code. It features a desktop campaign dashboard and a fully optimized mobile AR viewport with modern controls.
 
-![Tech](https://img.shields.io/badge/Stack-HTML%20%7C%20CSS%20%7C%20JS%20%7C%20Node-6c5ce7)
-![Deploy](https://img.shields.io/badge/Deploy-Render-00cec9)
-
----
-
-## ✨ Features
-
-| Feature | Details |
-|---------|---------|
-| **QR → Browser** | Scan a QR code pointing to the deployed URL |
-| **Camera Feed** | Full-screen rear camera (auto-fallback to front) |
-| **Floating Video** | Transparent WebM loops over the camera feed |
-| **Touch Gestures** | One-finger drag · Two-finger pinch to resize |
-| **Responsive** | Portrait & landscape on Android + iOS |
-| **Error Handling** | Friendly screens for every failure mode |
-| **Performance** | `requestAnimationFrame`, hardware acceleration, low memory |
+🌐 **Live Deployment Link:** [https://ar-video-kle5.onrender.com/](https://ar-video-kle5.onrender.com/)
 
 ---
 
-## 🚀 Quick Start (Local)
+## 🚀 Key Features
 
-### Prerequisites
+### 1. Apple Vision Pro Style Floating Control Panel
+The mobile AR viewport features a floating, vertically aligned glassmorphic control panel on the right side of the screen. Designed with high-contrast, premium styling for outdoor readability:
+*   **Circular Buttons (56–64px):** Frosted glass background (`backdrop-filter: blur(20px)`), thin semi-transparent white border, and soft drop shadows.
+*   **Tactile Feedback:** Smooth CSS transition scaling and visual press feedback for a native-like feel.
+*   **Interactive Toolbar:**
+    *   🔒 **Lock / Unlock:** Programmatically detaches the AR video overlay from the camera feed, locking it in place at its current 3D real-world coordinates. Tapping again unlocks it to follow the camera.
+    *   🎯 **Recenter:** Snaps the video back to the center of the camera viewport (`z = -2`) and resets its rotation and follow status.
+    *   🔊 **Audio Toggle:** Seamlessly unmutes/mutes video audio on mobile devices without interrupting playback.
 
-- **Node.js** ≥ 18
-- A device with a camera (or use Chrome DevTools mobile emulation)
+### 2. Multi-Campaign QR Dashboard (Desktop)
+When accessed on a desktop browser, the application loads a dashboard featuring **10 dynamic marketing campaigns**:
+*   Generates QR codes for each campaign pointing to the live URL with query parameters (e.g., `?id=1` to `?id=10`).
+*   Includes an inline **Edit Modal** to dynamically update video URLs in real-time in the database.
+*   Each QR card is scannable to directly load that specific video on any mobile device.
 
-### Install & Run
-
-```bash
-# 1. Clone the repo
-git clone <your-repo-url>
-cd qr-ar-video-experience
-
-# 2. Install dependencies
-npm install
-
-# 3. Start the server
-npm start
-```
-
-Open **http://localhost:3000** in your browser.
-
-> **Note:** Camera access requires HTTPS in production. For local testing,
-> `localhost` is treated as a secure context by most browsers.
-
----
-
-## 🎬 Replacing the Placeholder Video
-
-The app is designed to work with a **transparent WebM** video overlay. When no video file is present, an animated 3D cube placeholder is shown instead.
-
-### Steps to Add Your Video
-
-1. **Prepare your video** — export as `.webm` with VP9 codec and alpha channel (transparency).
-   - In **After Effects**: Render → WebM with alpha
-   - In **Blender**: Render → FFmpeg → WebM, RGBA
-   - In **FFmpeg**:
-     ```bash
-     ffmpeg -i input.mov -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 2M output.webm
-     ```
-
-2. **Place the file** at:
-   ```
-   public/assets/video.webm
-   ```
-
-3. **Restart the server** (or just refresh the browser). The app automatically detects and plays the file.
-
-### Video Tips
-
-- Keep file size under **5 MB** for fast mobile loading.
-- Use **VP9** codec for best transparency support.
-- Aim for **720p** resolution — higher isn't needed for a floating overlay.
-- Loop point should be seamless (the video loops forever).
+### 3. Advanced Technical Integration
+*   **Chroma Key Transparency:** Custom WebGL fragment shader built on top of Three.js removes the green/cyan backgrounds from standard MP4 videos on the fly, enabling seamless transparency.
+*   **Mobile-Optimized Touch Gestures:**
+    *   **One-finger drag:** Moves the video across X and Y dimensions.
+    *   **Two-finger pinch:** Dynamically scales/resizes the 3D plane.
+*   **Camera Fallback System:** Prioritizes the high-quality rear camera, falling back to the front camera or showing troubleshooting steps if permissions are denied.
+*   **Mobile Debug Logging:** Append `?debug=true` to any campaign URL to display a real-time console overlay on mobile for easier troubleshooting.
 
 ---
 
-## 🌐 Deploying to Render
+## 🛠️ Technology Stack
 
-### 1. Push to GitHub / GitLab
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin <your-repo-url>
-git push -u origin main
-```
-
-### 2. Create a Render Web Service
-
-1. Go to [render.com](https://render.com) → **New** → **Web Service**
-2. Connect your repository
-3. Configure:
-
-| Setting | Value |
-|---------|-------|
-| **Name** | `qr-ar-video` |
-| **Runtime** | Node |
-| **Build Command** | `npm install` |
-| **Start Command** | `npm start` |
-| **Plan** | Free (or Starter) |
-
-4. Click **Deploy**
-
-Render automatically detects `package.json`, installs dependencies, and starts the Express server on the correct port.
-
-### 3. Generate a QR Code
-
-Once deployed, take your Render URL (e.g., `https://qr-ar-video.onrender.com`) and generate a QR code using any free tool:
-
-- [qr-code-generator.com](https://www.qr-code-generator.com/)
-- [qrcode.tec-it.com](https://qrcode.tec-it.com/)
-
-Print or display the QR code — scanning it opens the AR experience.
+*   **Front-end:**
+    *   [A-Frame](https://aframe.io/) (WebXR/Three.js framework)
+    *   [Three.js](https://threejs.org/) (Custom shader materials, Vector math, and projection matrices)
+    *   Vanilla CSS3 (Glassmorphism, CSS Grid, Custom Transitions)
+*   **Back-end:**
+    *   [Node.js](https://nodejs.org/) & [Express](https://expressjs.com/) (REST APIs, static hosting)
+    *   [Helmet](https://helmetjs.github.io/) (Configured for relaxed CSP headers to support AR camera feeds and CDN assets)
+    *   [Compression](https://github.com/expressjs/compression) (Gzip middleware for fast asset delivery)
+*   **Database & Storage:**
+    *   [MongoDB Atlas](https://www.mongodb.com/atlas) (Mongoose ODM for persistent campaign and URL storage)
+    *   [Cloudinary](https://cloudinary.com/) (CDN hosting for optimized video assets)
 
 ---
 
-## 📁 Project Structure
+## 📂 Project Structure
 
 ```
-project/
-│
+AR-Video/
+├── models/
+│   └── Video.js            # Mongoose schema for Campaigns/Videos
 ├── public/
-│   ├── index.html          # Main HTML — all four screens
-│   ├── styles.css           # Dark glassmorphism theme
-│   ├── script.js            # Camera, gestures, state management
-│   └── assets/
-│       ├── video.webm       # ← Your transparent video goes here
-│       └── icons/
-│
-├── server.js                # Express server (Helmet, compression)
-├── package.json             # Dependencies & scripts
-├── .gitignore
-└── README.md
+│   ├── js/
+│   │   ├── aframe.min.js
+│   │   └── aframe-extras.min.js
+│   ├── index.html          # Main layout (Dashboard, Loader, WebAR Viewport)
+│   ├── styles.css          # Glassmorphic controls, layouts, and cards
+│   └── script.js           # A-Frame component, gesture math, and API bindings
+├── seed.js                 # Automatic DB seeding for the 10 default campaigns
+├── server.js               # Node.js/Express server config & REST API
+├── package.json            # Node dependencies and scripts
+└── README.md               # Documentation
 ```
 
 ---
 
-## 🔧 Browser Compatibility
+## ⚙️ Quick Start (Local Setup)
 
-| Browser | Camera | Transparent WebM | Touch Gestures |
-|---------|--------|-----------------|----------------|
-| Chrome Android | ✅ | ✅ | ✅ |
-| Samsung Internet | ✅ | ✅ | ✅ |
-| Safari iOS 15+ | ✅ | ⚠️ Partial* | ✅ |
-| Firefox Android | ✅ | ✅ | ✅ |
-| Chrome Desktop | ✅ | ✅ | Mouse drag + wheel |
+### 1. Prerequisites
+*   Node.js (version 18+)
+*   MongoDB Instance (Local or MongoDB Atlas URI)
 
-> *Safari has limited WebM/VP9 support. On iOS, the placeholder animation is shown.
-> For full iOS support, consider also providing an **HEVC with alpha** `.mov` file.
+### 2. Installation
+```bash
+# Clone the repository
+git clone https://github.com/Ananya0424/AR-Video.git
+cd AR-Video
+
+# Install dependencies
+npm install
+```
+
+### 3. Environment Variables
+To connect your own MongoDB database, create a `.env` file or set the environment variable:
+```bash
+MONGODB_URI="mongodb+srv://<username>:<password>@cluster0.mongodb.net/dbname"
+```
+*Note: If no URI is provided, the application defaults to a pre-configured MongoDB Atlas cluster connection.*
+
+### 4. Run the Server
+```bash
+# Start development server
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 🌐 Deployment to Render
+
+This repository is pre-configured for seamless deployment on **Render**:
+
+1.  Create a new **Web Service** on Render and link your GitHub repository.
+2.  Use the following settings:
+    *   **Runtime:** `Node`
+    *   **Build Command:** `npm install`
+    *   **Start Command:** `npm start`
+3.  Add an environment variable `MONGODB_URI` pointing to your MongoDB Atlas database.
+4.  Once deployed, access the dashboard at your custom Render subdomain (e.g. `https://ar-video-kle5.onrender.com/`).
+
+---
+
+## 🔧 REST API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/videos` | `GET` | Retrieve list of all 10 campaigns |
+| `/api/videos/:id` | `GET` | Retrieve details for a single campaign QR ID |
+| `/api/videos/:id` | `PUT` | Update the video URL for a campaign |
+| `/api/log` | `POST` | Receive client logs on the server for remote debugging |
 
 ---
 
 ## 📄 License
 
-MIT
+This project is licensed under the MIT License.
