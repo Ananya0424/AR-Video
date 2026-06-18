@@ -270,11 +270,49 @@ async function runLoadingSequence() {
   const video = els.hologramVideo;
   let videoReady = false;
 
-  // Fetch the video file as a Blob for CORS & local WebGL texture loading robustness (especially Safari/iOS)
+  // 1. Read QR ID from query parameter (?id=X), defaulting to "1"
+  const urlParams = new URLSearchParams(window.location.search);
+  let qrId = urlParams.get('id');
+  if (!qrId) {
+    qrId = "1";
+    console.log('runLoadingSequence: No ?id query param found. Defaulting to QR ID "1"');
+  }
+
+  // 2. Fetch video URL from MongoDB-backed backend
+  let videoUrl = 'assets/video.mp4'; // Default local fallback
+  let videoTitle = 'AR Video Experience';
+
+  try {
+    console.log(`runLoadingSequence: Fetching video URL from backend API for QR ID "${qrId}"...`);
+    const apiRes = await fetch(`/api/videos/${qrId}`);
+    if (!apiRes.ok) {
+      throw new Error(`API returned status ${apiRes.status}`);
+    }
+    const data = await apiRes.json();
+    if (data && data.videoUrl) {
+      videoUrl = data.videoUrl;
+      videoTitle = data.title || videoTitle;
+      console.log(`runLoadingSequence: Resolved video URL from DB: "${videoUrl}", Title: "${videoTitle}"`);
+
+      // Dynamically update the UI titles to match the DB record
+      const welcomeTitleEl = document.querySelector('.welcome-title');
+      if (welcomeTitleEl) {
+        welcomeTitleEl.textContent = videoTitle;
+      }
+      const welcomeDescEl = document.querySelector('.welcome-desc');
+      if (welcomeDescEl) {
+        welcomeDescEl.innerHTML = `Watch the <strong>${videoTitle}</strong> come to life. <br>Drag to move &bull; Pinch to resize.`;
+      }
+    }
+  } catch (err) {
+    console.warn(`runLoadingSequence: Failed to fetch from API for QR ID "${qrId}". Falling back to default video.`, err.message);
+  }
+
+  // 3. Fetch the video file as a Blob for CORS & local WebGL texture loading robustness (especially Safari/iOS)
   if (video) {
-    console.log('runLoadingSequence: Pre-fetching video as Blob for iOS/CORS compatibility...');
+    console.log(`runLoadingSequence: Pre-fetching video from "${videoUrl}" as Blob...`);
     try {
-      const response = await fetch('assets/video.mp4');
+      const response = await fetch(videoUrl);
       if (!response.ok) throw new Error(`HTTP status ${response.status}`);
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
@@ -286,7 +324,7 @@ async function runLoadingSequence() {
       console.log('runLoadingSequence: Video loaded as Blob URL successfully');
     } catch (err) {
       console.error('runLoadingSequence: Blob pre-fetch failed, falling back to direct URL:', err);
-      video.src = 'assets/video.mp4';
+      video.src = videoUrl;
       video.load();
       // Use fallback event listeners
       if (video.readyState >= 1) {
@@ -307,7 +345,7 @@ async function runLoadingSequence() {
       console.warn('runLoadingSequence: Video loading timed out, forcing safety fallback');
       videoReady = true; 
     }
-  }, 10000);
+  }, 12000);
 
   const tick = () => {
     if (progress < 90) {

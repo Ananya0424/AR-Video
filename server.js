@@ -11,9 +11,23 @@ const helmet = require('helmet');
 const compression = require('compression');
 const path = require('path');
 const os = require('os');
+const mongoose = require('mongoose');
+const Video = require('./models/Video');
+const seedDatabase = require('./seed');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ar-video';
+
+// Connect to MongoDB
+mongoose.connect(MONGODB_URI)
+  .then(async () => {
+    console.log('Connected to MongoDB successfully at:', MONGODB_URI);
+    await seedDatabase();
+  })
+  .catch((err) => {
+    console.error('MongoDB connection error:', err.message);
+  });
 
 /* ──────────────────────────────────────────────
    Local IP Discovery (for easy mobile testing)
@@ -48,6 +62,59 @@ app.post('/api/log', (req, res) => {
   const { type, message } = req.body;
   console.log(`[CLIENT ${type.toUpperCase()}] ${message}`);
   res.sendStatus(200);
+});
+
+// GET video by QR ID
+app.get('/api/videos/:id', async (req, res) => {
+  try {
+    const video = await Video.findOne({ qrId: req.params.id });
+    if (!video) {
+      return res.status(404).json({ error: `Video with QR ID ${req.params.id} not found` });
+    }
+    res.json({
+      qrId: video.qrId,
+      title: video.title,
+      videoUrl: video.videoUrl,
+      active: video.active
+    });
+  } catch (err) {
+    console.error('GET /api/videos/:id error:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// Update video URL by QR ID
+app.put('/api/videos/:id', async (req, res) => {
+  try {
+    const { videoUrl, title, active } = req.body;
+    if (!videoUrl) {
+      return res.status(400).json({ error: 'videoUrl is required' });
+    }
+    
+    const updateData = { videoUrl };
+    if (title !== undefined) updateData.title = title;
+    if (active !== undefined) updateData.active = active;
+
+    const video = await Video.findOneAndUpdate(
+      { qrId: req.params.id },
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!video) {
+      return res.status(404).json({ error: `Video with QR ID ${req.params.id} not found` });
+    }
+
+    res.json({
+      qrId: video.qrId,
+      title: video.title,
+      videoUrl: video.videoUrl,
+      active: video.active
+    });
+  } catch (err) {
+    console.error('PUT /api/videos/:id error:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // Security headers — fully relaxed for AR camera + CDN + tunnel access
