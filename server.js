@@ -17,7 +17,7 @@ const seedDatabase = require('./seed');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ar-video';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://ananya:Ananya%4024@cluster0.fc2jsu2.mongodb.net/ar-video?retryWrites=true&w=majority&appName=Cluster0';
 
 // Connect to MongoDB
 mongoose.connect(MONGODB_URI)
@@ -62,6 +62,24 @@ app.post('/api/log', (req, res) => {
   const { type, message } = req.body;
   console.log(`[CLIENT ${type.toUpperCase()}] ${message}`);
   res.sendStatus(200);
+});
+
+// GET all videos
+app.get('/api/videos', async (req, res) => {
+  try {
+    const videos = await Video.find({});
+    // Sort numerically by qrId
+    videos.sort((a, b) => parseInt(a.qrId) - parseInt(b.qrId));
+    res.json(videos.map(video => ({
+      qrId: video.qrId,
+      title: video.title,
+      videoUrl: video.videoUrl,
+      active: video.active
+    })));
+  } catch (err) {
+    console.error('GET /api/videos error:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 // GET video by QR ID

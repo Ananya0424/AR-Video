@@ -230,10 +230,14 @@ const els = {
   resetPosBtn:      $('reset-pos-btn'),
   arHud:            $('ar-hud'),
   arToast:          $('ar-toast'),
-  desktopQrCard:    $('desktop-qr-card'),
-  closeQrBtn:       $('close-qr-btn'),
-  qrImage:          $('qr-image'),
-  qrUrlText:        $('qr-url-text'),
+  desktopDashboard: $('desktop-dashboard'),
+  qrGrid:           $('qr-grid'),
+  editModal:        $('edit-modal'),
+  editForm:         $('edit-form'),
+  editQrId:         $('edit-qr-id'),
+  editTitle:        $('edit-title'),
+  editVideoUrl:     $('edit-video-url'),
+  closeModalBtn:    $('close-modal-btn'),
   chromaSimilarity: $('chroma-similarity'),
   chromaColor:      $('chroma-color'),
   chromaTuner:      $('chroma-tuner'),
@@ -368,9 +372,12 @@ async function runLoadingSequence() {
 
 async function initDesktopQR() {
   const isDesktop = window.innerWidth > 768;
-  if (!isDesktop || !els.desktopQrCard) return;
+  if (!isDesktop || !els.desktopDashboard) return;
 
-  let testUrl = window.location.href;
+  console.log('initDesktopQR: Initializing desktop campaign manager dashboard...');
+
+  // 1. Determine base URL for AR QR codes
+  let baseUrl = window.location.origin;
   const hostname = window.location.hostname;
 
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
@@ -378,24 +385,165 @@ async function initDesktopQR() {
       const res = await fetch('/api/info');
       if (res.ok) {
         const info = await res.json();
-        testUrl = info.url;
+        baseUrl = info.url;
       }
     } catch (err) {
       console.warn('Could not fetch server local IP', err);
     }
   }
 
-  els.qrUrlText.textContent = testUrl;
+  // 2. Fetch all 10 video records from MongoDB
+  try {
+    const res = await fetch('/api/videos');
+    if (!res.ok) throw new Error(`HTTP status ${res.status}`);
+    const videos = await res.json();
 
-  const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(testUrl)}&color=0a0a1a&bgcolor=ffffff&margin=10`;
-  els.qrImage.src = qrApiUrl;
-  els.qrImage.onload = () => {
-    const spinner = els.desktopQrCard.querySelector('.qr-loading-spinner');
-    if (spinner) spinner.style.display = 'none';
-  };
+    // Clear grid and render cards
+    els.qrGrid.innerHTML = '';
+    
+    videos.forEach((video) => {
+      const qrUrl = `${baseUrl}/ar?id=${video.qrId}`;
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(qrUrl)}&color=0b0b1a&bgcolor=ffffff&margin=10`;
+      
+      const card = document.createElement('div');
+      card.className = 'qr-card';
+      card.id = `card-${video.qrId}`;
+      card.innerHTML = `
+        <span class="qr-card-badge">QR ID: #${video.qrId}</span>
+        <h3 class="qr-card-title">${video.title}</h3>
+        <img class="qr-code-img" src="${qrApiUrl}" alt="QR Code #${video.qrId}" loading="lazy">
+        
+        <div class="qr-card-link-container">
+          <span class="qr-card-link-text" id="link-text-${video.qrId}">${qrUrl}</span>
+          <button class="qr-card-btn-icon copy-btn" data-url="${qrUrl}" data-id="${video.qrId}" title="Copy Link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="qr-card-actions">
+          <button class="qr-btn qr-btn-primary open-btn" data-url="${qrUrl}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            Open Link
+          </button>
+          <button class="qr-btn qr-btn-secondary edit-btn" data-id="${video.qrId}" data-title="${video.title}" data-url="${video.videoUrl}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4z"/>
+            </svg>
+            Edit Video URL
+          </button>
+        </div>
+      `;
+      els.qrGrid.appendChild(card);
+    });
 
-  els.closeQrBtn.addEventListener('click', () => {
-    els.desktopQrCard.classList.add('hidden');
+    // 3. Set up event delegation for Copy, Open, and Edit buttons
+    setupDashboardEvents();
+
+  } catch (err) {
+    console.error('initDesktopQR: Failed to load campaign dashboard:', err.message);
+    els.qrGrid.innerHTML = `<p style="grid-column: 1 / -1; color: #ff3333; margin: 40px auto; font-weight: 600;">Failed to load dashboard: ${err.message}</p>`;
+  }
+}
+
+function setupDashboardEvents() {
+  // Click listener for entire grid (delegation)
+  els.qrGrid.addEventListener('click', async (e) => {
+    // Find closest button
+    const copyBtn = e.target.closest('.copy-btn');
+    const openBtn = e.target.closest('.open-btn');
+    const editBtn = e.target.closest('.edit-btn');
+
+    if (copyBtn) {
+      const url = copyBtn.getAttribute('data-url');
+      const id = copyBtn.getAttribute('data-id');
+      try {
+        await navigator.clipboard.writeText(url);
+        // Show temporary visual feedback
+        const originalSvg = copyBtn.innerHTML;
+        copyBtn.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        `;
+        setTimeout(() => { copyBtn.innerHTML = originalSvg; }, 1500);
+        showToast(`📋 Link copied for QR ID #${id}!`);
+      } catch (err) {
+        console.warn('Failed to copy text: ', err);
+      }
+    }
+
+    if (openBtn) {
+      const url = openBtn.getAttribute('data-url');
+      window.open(url, '_blank');
+    }
+
+    if (editBtn) {
+      const id = editBtn.getAttribute('data-id');
+      const title = editBtn.getAttribute('data-title');
+      const url = editBtn.getAttribute('data-url');
+
+      // Populate form
+      els.editQrId.value = id;
+      els.editTitle.value = title;
+      els.editVideoUrl.value = url;
+
+      // Open Modal
+      els.editModal.classList.add('active');
+    }
+  });
+
+  // Modal close listeners
+  els.closeModalBtn.addEventListener('click', () => {
+    els.editModal.classList.remove('active');
+  });
+
+  els.editModal.addEventListener('click', (e) => {
+    if (e.target === els.editModal) {
+      els.editModal.classList.remove('active');
+    }
+  });
+
+  // Modal Form Submit Listener
+  els.editForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = els.editQrId.value;
+    const videoUrl = els.editVideoUrl.value;
+
+    console.log(`Submitting video URL update for QR ID ${id}...`);
+    try {
+      const res = await fetch(`/api/videos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      const updatedVideo = await res.json();
+      console.log('Update successful:', updatedVideo);
+
+      // Update the edit-btn attribute so subsequent opens have correct URL
+      const card = document.getElementById(`card-${id}`);
+      if (card) {
+        const editBtn = card.querySelector('.edit-btn');
+        if (editBtn) {
+          editBtn.setAttribute('data-url', videoUrl);
+        }
+      }
+
+      // Close modal and show toast
+      els.editModal.classList.remove('active');
+      showToast(`✅ Video URL updated successfully for QR #${id}!`);
+    } catch (err) {
+      console.error('Failed to update video URL:', err.message);
+      showToast('❌ Failed to update video URL');
+    }
   });
 }
 

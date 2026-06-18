@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="styles.css?v=1.4.0" />
+  <link rel="stylesheet" href="styles.css?v=1.5.0" />
 
   <!--
     CRITICAL: Load A-Frame FIRST, then extras, then our script.
@@ -163,20 +163,50 @@
   </section>
 
   <!-- ═══════════════════════════════════════════
-       5. DESKTOP QR UTILITY
+       5. DESKTOP QR DASHBOARD
        ═══════════════════════════════════════════ -->
-  <div id="desktop-qr-card" class="desktop-qr-card">
-    <div class="qr-card-header">
-      <h3>Test on Mobile</h3>
-      <button id="close-qr-btn" aria-label="Close QR overlay">&times;</button>
+  <div id="desktop-dashboard" class="desktop-dashboard">
+    <div class="dashboard-header">
+      <div class="dashboard-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <rect x="7" y="7" width="3" height="3"/>
+          <rect x="14" y="7" width="3" height="3"/>
+          <rect x="7" y="14" width="3" height="3"/>
+          <rect x="14" y="14" width="3" height="3"/>
+        </svg>
+        <h2>WebAR Campaign Manager</h2>
+      </div>
+      <p class="dashboard-subtitle">Scan any of the 10 QR codes below to view that specific video in WebAR on your phone, or update video URLs dynamically.</p>
     </div>
-    <div class="qr-code-wrapper">
-      <img id="qr-image" src="" alt="QR Code to scan" />
-      <div class="qr-loading-spinner"></div>
+    
+    <div id="qr-grid" class="qr-grid">
+      <!-- 10 dynamic QR cards will be generated here by script.js -->
+      <div class="qr-loading-spinner" style="grid-column: 1 / -1; margin: 40px auto;"></div>
     </div>
-    <p>Scan this QR code with your phone's camera to open the AR experience instantly.</p>
-    <div class="qr-url-display">
-      <span id="qr-url-text">Loading URL...</span>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       6. EDIT VIDEO URL MODAL
+       ═══════════════════════════════════════════ -->
+  <div id="edit-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Edit Video URL</h3>
+        <button id="close-modal-btn" class="close-btn">&times;</button>
+      </div>
+      <form id="edit-form">
+        <input type="hidden" id="edit-qr-id">
+        <div class="form-group">
+          <label for="edit-title">Title</label>
+          <input type="text" id="edit-title" readonly style="background: rgba(255,255,255,0.05); color: #888; border-color: rgba(255,255,255,0.1);">
+        </div>
+        <div class="form-group">
+          <label for="edit-video-url">Video URL (MP4)</label>
+          <input type="url" id="edit-video-url" required placeholder="https://res.cloudinary.com/.../video.mp4">
+        </div>
+        <button type="submit" class="qr-btn qr-btn-primary" style="margin-top: 20px; width: 100%; height: 44px;">Save Changes</button>
+      </form>
     </div>
   </div>
 
@@ -189,6 +219,6 @@
     <div id="debug-log-list"></div>
   </div>
 
-  <script src="script.js?v=1.4.0"></script>
+  <script src="script.js?v=1.5.0"></script>
 </body>
 </html>
