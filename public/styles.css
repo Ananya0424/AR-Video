@@ -767,6 +767,10 @@ a-scene canvas,
 }
 
 @media (min-width: 769px) {
+  html, body {
+    overflow: auto !important;
+    height: auto !important;
+  }
   /* On desktop, show the dashboard and completely hide mobile welcome screen and old overlay cards */
   #welcome-screen {
     display: none !important;
