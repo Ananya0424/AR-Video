@@ -188,6 +188,31 @@ if (typeof AFRAME === 'undefined') {
       if (this.videoTexture) {
         this.videoTexture.needsUpdate = true;
       }
+
+      // Follow camera if AR mode is active and position is not locked
+      if (isARMode && !isVideoLocked) {
+        const cameraEl = document.querySelector('[camera]');
+        if (cameraEl && cameraEl.object3D) {
+          const camera3D = cameraEl.object3D;
+          camera3D.updateMatrixWorld(true);
+
+          // Project localOffset to world coordinates
+          const localPos = new THREE.Vector3(localOffset.x, localOffset.y, localOffset.z);
+          const worldPosition = localPos.applyMatrix4(camera3D.matrixWorld);
+
+          // Match camera's rotation
+          const worldQuaternion = new THREE.Quaternion();
+          camera3D.matrixWorld.decompose(new THREE.Vector3(), worldQuaternion, new THREE.Vector3());
+          
+          const worldEuler = new THREE.Euler().setFromQuaternion(worldQuaternion, 'YXZ');
+          const rotX = THREE.MathUtils.radToDeg(worldEuler.x);
+          const rotY = THREE.MathUtils.radToDeg(worldEuler.y);
+          const rotZ = THREE.MathUtils.radToDeg(worldEuler.z);
+
+          this.el.setAttribute('position', { x: worldPosition.x, y: worldPosition.y, z: worldPosition.z });
+          this.el.setAttribute('rotation', { x: rotX, y: rotY, z: rotZ });
+        }
+      }
     }
   });
 
@@ -225,10 +250,12 @@ const els = {
   cameraFeed:       $('camera-feed'),
   overlayContainer: $('overlay-container'),
   hologramVideo:    $('hologramVideo'),       // FIXED: was 'overlay-video' which doesn't exist
-  closeBtn:         $('close-btn'),
-  switchCamBtn:     $('switch-cam-btn'),
-  resetPosBtn:      $('reset-pos-btn'),
-  arHud:            $('ar-hud'),
+  closeBtn:         $('ar-close-btn'),
+  switchCamBtn:     $('ar-switch-cam-btn'),
+  lockBtn:          $('ar-lock-btn'),
+  muteBtn:          $('ar-mute-btn'),
+  recenterBtn:      $('ar-recenter-btn'),
+  arControlPanel:   $('ar-control-panel'),
   arToast:          $('ar-toast'),
   desktopDashboard: $('desktop-dashboard'),
   qrGrid:           $('qr-grid'),
@@ -255,6 +282,8 @@ let hologramEntity = null;
 let aframeSceneCreated = false;
 let isVideoLocked = false;
 let hasMoved     = false;
+let localOffset  = { x: 0, y: 0, z: -2 };
+let initialOffset = { x: 0, y: 0, z: -2 };
 
 /* ═══════════════════════════════════════════════════════════════
    Screen Manager
@@ -779,15 +808,17 @@ function createAFrameScene() {
 
       hologramEntity = document.getElementById('hologram-plane');
       if (hologramEntity) {
-        console.log('hologram-plane entity found in world space');
+        console.log('hologram-plane entity found');
         
-        // Tap to lock/unlock video position
+        // Tap to lock video position
         hologramEntity.addEventListener('click', () => {
           if (hasMoved) {
             console.log('Click ignored because touch moved (drag/pinch)');
             return;
           }
-          toggleVideoLock();
+          if (!isVideoLocked) {
+            lockVideoInWorld();
+          }
         });
       } else {
         console.error('hologram-plane entity NOT found after scene load');
@@ -821,7 +852,6 @@ function setupGestures() {
   let startX, startY;
   let startDist = 0;
   let isDragging = false;
-  let initialPosition = { x: 0, y: 0, z: -2 };
   let initialScale = { x: 1.6, y: 0.9, z: 1 };
 
   container.addEventListener('touchstart', (e) => {
@@ -839,8 +869,7 @@ function setupGestures() {
       isDragging = true;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
-      const pos = hologramEntity.getAttribute('position');
-      initialPosition = { x: pos.x, y: pos.y, z: pos.z };
+      initialOffset = { x: localOffset.x, y: localOffset.y, z: localOffset.z };
     } else if (e.touches.length === 2) {
       isDragging = false;
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -870,11 +899,8 @@ function setupGestures() {
     if (isVideoLocked) return;
 
     if (e.touches.length === 1 && isDragging) {
-      hologramEntity.setAttribute('position', {
-        x: initialPosition.x + (dx * 0.01),
-        y: initialPosition.y - (dy * 0.01),
-        z: initialPosition.z
-      });
+      localOffset.x = initialOffset.x + (dx * 0.01);
+      localOffset.y = initialOffset.y - (dy * 0.01);
     } else if (e.touches.length === 2) {
       const dx2 = e.touches[0].clientX - e.touches[1].clientX;
       const dy2 = e.touches[0].clientY - e.touches[1].clientY;
@@ -895,8 +921,7 @@ function setupGestures() {
       if (isDragging) {
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
-        const pos = hologramEntity.getAttribute('position');
-        initialPosition = { x: pos.x, y: pos.y, z: pos.z };
+        initialOffset = { x: localOffset.x, y: localOffset.y, z: localOffset.z };
       }
     }
   });
@@ -928,14 +953,26 @@ function setupChromaTuner() {
    ═══════════════════════════════════════════════════════════════ */
 function initHudAutoHide() {
   const show = () => {
-    els.arHud.classList.remove('hidden');
+    if (els.arControlPanel) els.arControlPanel.classList.remove('hidden');
+    if (els.closeBtn) els.closeBtn.classList.remove('hidden');
+    if (els.switchCamBtn) els.switchCamBtn.classList.remove('hidden');
     clearTimeout(hudTimeout);
-    hudTimeout = setTimeout(() => els.arHud.classList.add('hidden'), 4000);
+    hudTimeout = setTimeout(() => {
+      if (els.arControlPanel) els.arControlPanel.classList.add('hidden');
+      if (els.closeBtn) els.closeBtn.classList.add('hidden');
+      if (els.switchCamBtn) els.switchCamBtn.classList.add('hidden');
+    }, 4000);
   };
 
   document.addEventListener('touchstart', show, { passive: true });
   document.addEventListener('mousemove', show, { passive: true });
-  hudTimeout = setTimeout(() => els.arHud.classList.add('hidden'), 4000);
+  
+  clearTimeout(hudTimeout);
+  hudTimeout = setTimeout(() => {
+    if (els.arControlPanel) els.arControlPanel.classList.add('hidden');
+    if (els.closeBtn) els.closeBtn.classList.add('hidden');
+    if (els.switchCamBtn) els.switchCamBtn.classList.add('hidden');
+  }, 4000);
 }
 
 function showToast(message) {
@@ -981,6 +1018,9 @@ async function launchAR() {
   // 2. Switch to AR screen immediately (user gesture context)
   isARMode = true;
   showScreen('ar');
+  if (els.arControlPanel) els.arControlPanel.classList.remove('hidden');
+  if (els.closeBtn) els.closeBtn.classList.remove('hidden');
+  if (els.switchCamBtn) els.switchCamBtn.classList.remove('hidden');
 
   // 3. Play hologram video immediately (requires user gesture context)
   const video = els.hologramVideo;
@@ -1010,6 +1050,10 @@ async function launchAR() {
     initHudAutoHide();
     showToast();
 
+    // Initialize UI states for Lock and Mute
+    updateLockIcon();
+    updateMuteIcon();
+
     // 7. Ensure video is playing (retry after camera init)
     if (video && video.paused) {
       video.play().catch(e => console.warn('AR video retry play failed:', e));
@@ -1021,6 +1065,9 @@ async function launchAR() {
     console.error('AR Launch failed:', err);
     isARMode = false;
     showScreen('welcome');
+    if (els.arControlPanel) els.arControlPanel.classList.add('hidden');
+    if (els.closeBtn) els.closeBtn.classList.add('hidden');
+    if (els.switchCamBtn) els.switchCamBtn.classList.add('hidden');
     showError('generic', err.message);
   } finally {
     resetStartBtn();
@@ -1038,26 +1085,64 @@ function resetStartBtn() {
     Start AR Experience`;
 }
 
-function toggleVideoLock() {
-  isVideoLocked = !isVideoLocked;
-  console.log('toggleVideoLock: Locked state is now', isVideoLocked);
-  
+function updateLockIcon() {
+  if (!els.lockBtn) return;
+  const lockIcon = els.lockBtn.querySelector('.icon-lock');
+  const unlockIcon = els.lockBtn.querySelector('.icon-unlock');
   if (isVideoLocked) {
-    showToast('🔒 Video Position Locked. Tap Reset to unlock.');
+    if (lockIcon) lockIcon.classList.add('hidden');
+    if (unlockIcon) unlockIcon.classList.remove('hidden');
+    els.lockBtn.classList.add('active');
   } else {
-    showToast('🔓 Video Position Unlocked. Drag to move.');
+    if (lockIcon) lockIcon.classList.remove('hidden');
+    if (unlockIcon) unlockIcon.classList.add('hidden');
+    els.lockBtn.classList.remove('active');
   }
 }
 
-function resetVideoPosition() {
-  if (!hologramEntity) return;
-  
+function updateMuteIcon() {
+  if (!els.muteBtn) return;
+  const muteIcon = els.muteBtn.querySelector('.icon-mute');
+  const soundIcon = els.muteBtn.querySelector('.icon-sound');
+  const video = els.hologramVideo;
+  if (video && !video.muted) {
+    if (muteIcon) muteIcon.classList.add('hidden');
+    if (soundIcon) soundIcon.classList.remove('hidden');
+    els.muteBtn.classList.add('active');
+  } else {
+    if (muteIcon) muteIcon.classList.remove('hidden');
+    if (soundIcon) soundIcon.classList.add('hidden');
+    els.muteBtn.classList.remove('active');
+  }
+}
+
+function lockVideoInWorld() {
+  if (!hologramEntity || isVideoLocked) return;
+
+  console.log('lockVideoInWorld: Locking position in environment');
+  isVideoLocked = true;
+  updateLockIcon();
+  showToast('Video Locked');
+}
+
+function unlockVideo() {
+  if (!hologramEntity || !isVideoLocked) return;
+
+  console.log('unlockVideo: Resuming camera follow mode');
   isVideoLocked = false;
+  updateLockIcon();
+  showToast('Following Camera');
+}
+
+function recenterVideo() {
+  if (!hologramEntity) return;
+
+  console.log('recenterVideo: Recentering video and resuming follow mode');
   
-  // Reset position to default z=-2
-  hologramEntity.setAttribute('position', { x: 0, y: 0, z: -2 });
-  
-  // Reset scale to default or aspect-ratio scale
+  // Reset localOffset back to default camera-relative vector
+  localOffset = { x: 0, y: 0, z: -2 };
+
+  // Reset scale to match aspect ratio
   const video = els.hologramVideo;
   if (video) {
     const w = video.videoWidth;
@@ -1071,8 +1156,26 @@ function resetVideoPosition() {
       hologramEntity.setAttribute('scale', { x: 1.6, y: 0.9, z: 1 });
     }
   }
-  
-  showToast('🔄 Position Reset. Drag to move & Pinch to resize.');
+
+  isVideoLocked = false;
+  updateLockIcon();
+  showToast('Following Camera');
+}
+
+function toggleVideoMute() {
+  const video = els.hologramVideo;
+  if (!video) return;
+
+  video.muted = !video.muted;
+  console.log('toggleVideoMute: Mute status is now', video.muted);
+
+  updateMuteIcon();
+
+  if (video.muted) {
+    showToast('Sound Off');
+  } else {
+    showToast('Sound On');
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1086,6 +1189,7 @@ function closeAR() {
   const video = els.hologramVideo;
   if (video) {
     video.pause();
+    video.muted = true; // Ensure it's muted for next time
   }
 
   // Destroy A-Frame scene to free resources
@@ -1096,6 +1200,14 @@ function closeAR() {
   aframeSceneCreated = false;
   hologramEntity = null;
   isVideoLocked = false; // Reset lock state
+
+  // Hide recenter button & control panels
+  if (els.arControlPanel) els.arControlPanel.classList.add('hidden');
+  if (els.closeBtn) els.closeBtn.classList.add('hidden');
+  if (els.switchCamBtn) els.switchCamBtn.classList.add('hidden');
+
+  // Hide tuner if visible
+  if (els.chromaTuner) els.chromaTuner.classList.add('hidden');
 
   showScreen('welcome');
 }
@@ -1110,14 +1222,36 @@ els.retryBtn.addEventListener('click', () => {
   showScreen('welcome');
 });
 
-els.closeBtn.addEventListener('click', closeAR);
+if (els.closeBtn) {
+  els.closeBtn.addEventListener('click', closeAR);
+}
 
-els.switchCamBtn.addEventListener('click', switchCamera);
+if (els.switchCamBtn) {
+  els.switchCamBtn.addEventListener('click', switchCamera);
+}
 
-if (els.resetPosBtn) {
-  els.resetPosBtn.addEventListener('click', (e) => {
+if (els.lockBtn) {
+  els.lockBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    resetVideoPosition();
+    if (isVideoLocked) {
+      unlockVideo();
+    } else {
+      lockVideoInWorld();
+    }
+  });
+}
+
+if (els.recenterBtn) {
+  els.recenterBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    recenterVideo();
+  });
+}
+
+if (els.muteBtn) {
+  els.muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleVideoMute();
   });
 }
 
